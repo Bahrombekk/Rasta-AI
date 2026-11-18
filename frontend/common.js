@@ -28,6 +28,8 @@
     user: '<circle cx="12" cy="8" r="3"/><path d="M5 21v-2a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v2"/>',
     exit: '<path d="M11 4H5v16h6m3-4 4-4-4-4m-4 4h8"/>',
     scan: '<path d="M8 4H4v4m12-4h4v4M4 16v4h4m12-4v4h-4M7 12h10"/>',
+    "arrow-right": '<path d="M4 12h15m-6-6 6 6-6 6"/>',
+    "eye-off": '<path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.6 5.4a9.1 9.1 0 0 1 2.4-.4c5.5 0 9 7 9 7a17 17 0 0 1-2.5 3.4M6.2 6.7A17 17 0 0 0 3 12s3.5 7 9 7a8 8 0 0 0 4.1-1.2"/>',
   };
   window.icon = (n, cls = "i") => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ""}</svg>`;
   window.esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));

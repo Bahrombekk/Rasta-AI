@@ -102,21 +102,6 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .check-field { display: flex !important; align-items: center; gap: 8px; }
 .account-card { max-width: 510px; }
 .account-card h2 { margin-bottom: 18px; }
-.login-page { padding: clamp(12px, 4vw, 56px); min-height: 100dvh; display: grid; place-items: center; }
-.login-layout { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1fr); width: min(1080px, 100%);
-                min-height: 600px; overflow: hidden; border: 1px solid var(--border); border-radius: 23px;
-                background: var(--surface); box-shadow: var(--shadow); }
-.login-main { display: flex; flex-direction: column; padding: clamp(22px, 4vw, 52px); }
-.login-brand { display: flex; justify-content: space-between; align-items: center; }
-.login-form { margin: auto 0; padding: 38px 0; }
-.login-form h1 { margin: 0 0 9px; font-size: clamp(29px, 4vw, 46px); line-height: 1.05; letter-spacing: -.055em; }
-.login-form p { margin: 0 0 26px; color: var(--muted); }
-.login-form form .primary { margin-top: 14px; }
-.login-visual { display: flex; flex-direction: column; justify-content: flex-end; gap: 12px;
-                margin: 0; padding: clamp(18px, 3vw, 40px); background: #122620; color: #c7e1d7; }
-.login-visual img { width: 100%; height: auto; aspect-ratio: 5 / 6; object-fit: cover;
-                    border-radius: 14px; border: 1px solid #537065; }
-.login-visual figcaption { font-size: 13px; }
 @media (max-width: 1000px) {
   :root { --rail-width: 180px; }
   .shell + .page { padding-inline: 22px; }
@@ -140,8 +125,6 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
   .team-row { padding: 12px; gap: 7px; grid-template-columns: 30px minmax(0, 1fr) auto; }
   .team-avatar { width: 30px; height: 30px; }
   .team-row > .btn { grid-column: 2 / 4; justify-self: start; }
-  .login-layout { min-height: unset; grid-template-columns: 1fr; }
-  .login-visual { display: none; }
 }
 
 /* --- yuqori panel --- */
