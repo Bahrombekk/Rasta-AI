@@ -37,6 +37,8 @@
     store: '<path d="M4 10v10h16V10M3 10l2-6h14l2 6M3 10c0 3 4 3 4 0 0 3 5 3 5 0 0 3 5 3 5 0 0 3 4 3 4 0M10 20v-5h4v5"/>',
     camera: '<path d="M4 7h4l2-3h4l2 3h4a1 1 0 0 1 1 1v11H3V8a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13" r="3"/>',
     calendar: '<rect x="4" y="6" width="16" height="14" rx="2"/><path d="M8 4v4m8-4v4M4 10h16"/>',
+    visit: '<path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/>',
+    menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
   };
   window.icon = (n, cls = "i") => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ""}</svg>`;
   window.esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -45,12 +47,12 @@
     document.body.append(t); setTimeout(() => t.remove(), 2400);
   };
 
-  const loginUrl = () => "/login?next=" + encodeURIComponent(location.pathname);
+  const loginUrl = () => "/login?next=" + encodeURIComponent(location.pathname + location.search);
   window.rastaSession = fetch("/api/session", { cache: "no-store" })
     .then(r => { if (!r.ok) throw new Error(); return r.json(); })
     .catch(() => ({ unavailable: true, user: null }));
-  window.rastaHome = user => ({super_admin: "/platform", org_admin: "/dashboard"})[user?.role] || "/";
-  window.rastaRole = role => ({super_admin: "Super admin", org_admin: "Korxona admini", operator: "Operator"})[role] || "Admin";
+  window.rastaHome = user => ({super_admin: "/platform", org_admin: "/dashboard", operator: "/field"})[user?.role] || "/";
+  window.rastaRole = role => ({super_admin: "Super admin", org_admin: "Korxona admini", operator: "Agent"})[role] || "Admin";
   const dateFormat = new Intl.DateTimeFormat("en-GB", {
     day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
     hourCycle: "h23", timeZone: "Asia/Tashkent"
@@ -93,13 +95,14 @@
       ["organizations", "/organizations", "building", "Korxonalar"],
       ["platform", "/platform", "chart", "Platforma statistikasi"],
       ["dashboard", "/dashboard", "chart", "Bosh panel"],
+      ["field", "/field", "visit", "Tashriflar"],
       ["reports", "/reports", "report", "Hisobotlar"],
       ["stores", "/stores", "store", "Do‘konlar"],
       ["members", "/members", "users", "Xodimlar"],
     ];
     el.className = "shell";
     el.innerHTML = `
-      <a class="logo" href="/"><span class="mark">${icon("scan")}</span><span>Rasta<span class="shell-brand-ai"> AI</span></span></a>
+      <a class="logo" href="/"><span class="mark">${icon("scan")}</span><span>Rasta<span class="shell-brand-ai"> AI</span><small class="mobile-organization" hidden></small></span></a>
       <div class="shell-context" hidden><span class="shell-context-icon">${icon("building")}</span><span></span></div>
       <nav class="shell-links" aria-label="Asosiy menyu"></nav>
       <div class="shell-account">
@@ -125,8 +128,8 @@
       if (session.enabled && !session.user) { location.replace(loginUrl()); return; }
       const role = session.user?.role;
       const menu = session.workspaces
-        ? ({super_admin: ["platform","organizations"], org_admin: ["dashboard","analysis","reports","catalog","stores","members"],
-            operator: ["analysis","reports"]})[role] || []
+        ? ({super_admin: ["platform","organizations"], org_admin: ["dashboard","field","analysis","reports","catalog","stores","members"],
+            operator: ["field","analysis","reports"]})[role] || []
         : ["analysis", "catalog", ...(role === "super_admin" ? ["team"] : [])];
       if (session.workspaces && page !== "account" && !menu.includes(page)) {
         location.replace(rastaHome(session.user));
@@ -136,7 +139,8 @@
       const nav = el.querySelector(".shell-links");
       const navigationLink = ([key, href, glyph, label]) =>
         `<a href="${href}" ${key === page ? 'aria-current="page"' : ''}>${icon(glyph)}<span>${label}</span></a>`;
-      nav.innerHTML = menu.map(key => links.find(link => link[0] === key)).map(navigationLink).join("");
+      const menuLinks = menu.map(key => links.find(link => link[0] === key));
+      nav.innerHTML = menuLinks.map(navigationLink).join("");
       if (session.workspaces) {
         el.classList.add("workspace-shell");
         el.dataset.role = role;
@@ -144,6 +148,26 @@
         const context = el.querySelector(".shell-context");
         context.querySelector("span:last-child").textContent = session.user.organization || "Platforma boshqaruvi";
         context.hidden = false;
+        const mobileOrganization = el.querySelector(".mobile-organization");
+        mobileOrganization.textContent = session.user.organization || "Platforma boshqaruvi";
+        mobileOrganization.hidden = false;
+        const primary = role === "org_admin" ? new Set(["dashboard", "field", "stores"]) : new Set(menu);
+        const extra = menuLinks.filter(item => !primary.has(item[0]));
+        el.insertAdjacentHTML("beforeend", `
+          <nav class="mobile-nav" aria-label="Mobil menyu">
+            ${menuLinks.filter(item => primary.has(item[0])).map(navigationLink).join("")}
+            ${extra.length ? `<button type="button" id="mobile-more" aria-haspopup="dialog"
+              ${extra.some(item => item[0] === page) ? 'class="current"' : ""}>${icon("menu")}<span>Menyu</span></button>` : ""}
+          </nav>
+          ${extra.length ? `<dialog class="mobile-menu" aria-label="Qo‘shimcha sahifalar"><div class="panel-heading">
+            <h2>Sahifalar</h2><button type="button" class="iconbtn" aria-label="Yopish">${icon("x")}</button></div>
+            <nav aria-label="Qo‘shimcha sahifalar">${extra.map(navigationLink).join("")}</nav></dialog>` : ""}`);
+        const more = el.querySelector("#mobile-more");
+        if (more) {
+          const dialog = el.querySelector(".mobile-menu");
+          more.onclick = () => dialog.showModal();
+          dialog.querySelector("button").onclick = () => dialog.close();
+        }
       }
       if (!session.user) return;
       profile.querySelector("strong").textContent = session.user.username;

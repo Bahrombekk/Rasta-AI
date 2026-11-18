@@ -130,7 +130,9 @@
   async function dashboard(days = requestedDays()) {
     heading("Bosh panel", session.user.organization, periodLabel + link("/", "Yangi tahlil", true, "plus"));
     bindPeriod(days, dashboard);
-    const [stats, latest] = await Promise.all([rastaJson(`/api/overview?days=${days}`), rastaJson("/api/reports")]);
+    const [stats, latest, field] = await Promise.all([
+      rastaJson(`/api/overview?days=${days}`), rastaJson("/api/reports"), rastaJson(`/api/field/overview?days=${days}`)
+    ]);
     if ($("days").value !== days) return;
     const recognition = stats.products ? Math.round(100 * stats.recognized / stats.products) + "%" : "—";
     const range = {from: stats.trend[0].day, to: stats.trend.at(-1).day};
@@ -141,6 +143,14 @@
       ${metric("Tekshiruv navbati", count(stats.pending), "info", "amber")}
       ${metric("Kuzatilgan do‘konlar", count(stats.stores), "store", "blue")}
       ${metric("SKU tanish", recognition, "scan", "violet", stats.products ? `${count(stats.recognized)} / ${count(stats.products)} mahsulot` : "")}</div>
+      <section class="card work-section operations-panel"><div class="panel-heading"><div><h2>Agentlar ishi</h2>
+        <p>Tanlangan davrdagi tashrif va topshirishlar</p></div>${link("/field", "Tashriflar", false, "visit")}</div>
+        <div class="operations-grid">
+          <div><small>Tashriflar</small><strong>${count(field.totals.visits)}</strong><span>${count(field.totals.finished)} ta yakunlangan</span></div>
+          <div><small>Qamrab olingan do‘konlar</small><strong>${count(field.visited_stores)} / ${count(field.stores.length)}</strong></div>
+          <div><small>Topshirilgan tovar</small><strong>${count(field.totals.units)}</strong><span>dona</span></div>
+          <div><small>Bajarilgan topshiriqlar</small><strong>${count(field.totals.tasks_done)}</strong><span>${count(field.backlog.overdue)} ta muddati o‘tgan · barcha davr</span></div>
+        </div></section>
       <div class="dashboard-grid">
         ${trendPanel(stats.trend, stats.reports, link(drill({}), "Auditlarni ko‘rish", false, "arrow-right"))}
         <section class="card dashboard-panel"><div class="panel-heading"><div><h2>Audit holati</h2><p>Tanlangan davr</p></div></div>
@@ -360,7 +370,9 @@
       try {
         const { stores } = await rastaJson("/api/stores");
         if (!stores.length) throw new Error("Korxona admini avval do‘kon qo‘shishi kerak.");
-        const options = stores.map(store => `<option value="${store.id}">${esc(store.name)}</option>`).join("");
+        const legal = report.visit_id && report.store_id ? stores.filter(store => store.id === report.store_id) : stores;
+        if (!legal.length) throw new Error("Bu do‘kon sizga biriktirilmagan.");
+        const options = legal.map(store => `<option value="${store.id}">${esc(store.name)}</option>`).join("");
         openEditor("Hisobotni yuborish", `<label class="field"><span>Do‘kon</span><select class="input" name="store_id" required><option value="">Do‘konni tanlang</option>${options}</select></label>`
           + noteField("Izoh", "note"), async values => {
           await rastaJson(endpoint + "/submit", "POST", {store_id: Number(values.store_id), note: values.note});
@@ -420,8 +432,9 @@
       "org_admin", $("organization-admins"));
   }
   async function members() {
-    heading("Xodimlar", `${session.user.organization} jamoasining foydalanuvchi hisoblari.`, button("add-member", "Operator yaratish"));
-    await memberList("/api/members", "Jamoa hisoblari", "Operator", () => render(members), "operator");
+    heading("Xodimlar", `${session.user.organization} jamoasining foydalanuvchi hisoblari.`,
+      link("/field", "Do‘kon biriktirish", false, "visit") + button("add-member", "Agent yaratish"));
+    await memberList("/api/members", "Jamoa hisoblari", "Agent", () => render(members), "operator");
   }
   async function memberList(endpoint, title, label, refresh, editableRole, target = body) {
     const { users } = await rastaJson(endpoint);
@@ -442,24 +455,58 @@
       }, user);
     });
   }
-  async function stores() {
-    heading("Do‘konlar", "Operator hisobot yuborishda shu ro‘yxatdan do‘kon tanlaydi.", button("add-store", "Do‘kon qo‘shish"));
-    const { stores: rows } = await rastaJson("/api/stores");
-    body.innerHTML = `<section class="card work-section"><div class="panel-heading"><h2>Do‘konlar ro‘yxati</h2></div>${rows.length
-      ? table(["Nomi","Manzil",""], rows.map(store => `<tr><td><strong>${esc(store.name)}</strong></td><td>${esc(store.address || "—")}</td>
-        <td><button class="btn" type="button" data-store="${store.id}">Tahrirlash</button></td></tr>`).join(""))
-      : empty("Do‘konlar hali yo‘q", "Jamoa audit yuborishi uchun birinchi do‘konni qo‘shing.", "store")}</section>`;
+  async function stores(days = requestedDays()) {
+    const id = Number(queries.get("id"));
+    const stats = await rastaJson(`/api/field/overview?days=${days}${id ? "&store_id=" + id : ""}`);
+    const rows = stats.stores;
     const fields = nameField("Do‘kon nomi") + field("Manzil", "address", 'maxlength="200"');
+    if (id) {
+      const store = rows[0];
+      heading(store.name, store.address || "Do‘kon statistikasi", periodLabel + link(`/stores?days=${days}`, "Do‘konlar")
+        + button("edit-store", "Tahrirlash", "store", false));
+      bindPeriod(days, stores);
+      const reports = new URLSearchParams({store_id: store.id, from: stats.from, to: stats.to});
+      body.innerHTML = `<div class="work-metrics">
+        ${metric("Tashriflar", count(store.visits), "visit", "green", `${count(store.finished)} ta yakunlangan`)}
+        ${metric("Fotoauditlar", count(store.audits), "report", "blue", `${count(store.gaps)} ta bo‘sh joy`)}
+        ${metric("Topshirilgan tovar", count(store.units), "box", "violet", "dona")}
+        ${metric("Faol agentlar", count(store.agents), "users", "amber", `${count(store.tasks_done)} ta topshiriq bajarilgan`)}
+        </div>
+        <div class="dashboard-grid">
+          <section class="card dashboard-panel"><div class="panel-heading"><h2>So‘nggi tashriflar</h2>${link(reportsUrl(reports), "Fotoauditlar")}</div>
+            ${stats.recent_visits.length ? stats.recent_visits.map(visit => `<a class="state-line drill-link" href="/field?id=${visit.id}">
+              <span><strong>${esc(visit.agent)}</strong><br>${esc(rastaDate(visit.started))}</span>
+              ${tag(visit.finished ? "Yakunlangan" : "Ochiq", visit.finished ? "approved" : "submitted")}</a>`).join("")
+              : empty("Tashriflar hali yo‘q", "Tanlangan davrda qayd etilgan tashriflar shu yerda ko‘rinadi.", "visit")}
+          </section>
+          <section class="card dashboard-panel"><div class="panel-heading"><h2>Biriktirilgan agentlar</h2>${link("/field", "Biriktirish")}</div>
+            ${stats.agents.length ? stats.agents.map(agent => `<div class="state-line"><strong>${esc(agent.username)}</strong>
+              ${tag(agent.active ? "Faol" : "To‘xtatilgan", agent.active ? "approved" : "returned")}</div>`).join("")
+              : empty("Agent biriktirilmagan", "Tashriflar sahifasida agentga do‘kon biriktiring.", "users")}
+          </section>
+        </div>
+        <section class="card work-section"><div class="panel-heading"><h2>Topshirilgan mahsulotlar</h2></div>
+          ${stats.delivery_items.length ? table(["Mahsulot","SKU","Dona"], stats.delivery_items.map(item => `<tr>
+            <td>${esc(item.product)}</td><td>${esc(item.sku_id)}</td><td>${count(item.units)}</td></tr>`).join(""))
+          : empty("Topshirishlar qayd etilmagan", "Agent qayd qilgan mahsulotlar shu yerda ko‘rinadi.", "box")}
+        </section>`;
+      $("edit-store").onclick = () => openEditor("Do‘konni tahrirlash", fields, async values => {
+        await rastaJson(`/api/stores/${store.id}`, "PATCH", values);
+        await render(() => stores(days));
+      }, store);
+      return;
+    }
+    heading("Do‘konlar", "Tashrif, fotoaudit va tovar topshirish natijalari.", periodLabel + button("add-store", "Do‘kon qo‘shish"));
+    bindPeriod(days, stores);
+    body.innerHTML = rows.length ? `<div class="store-grid">${rows.map(store => `<a class="card store-stat-card" href="/stores?id=${store.id}&days=${days}">
+      <span class="metric-icon">${icon("store")}</span><div><h2>${esc(store.name)}</h2><small>${esc(store.address || "Manzil kiritilmagan")}</small></div>
+      ${icon("arrow-right")}<div class="store-stat-values"><span><strong>${count(store.visits)}</strong>Tashrif</span>
+      <span><strong>${count(store.audits)}</strong>Audit</span><span><strong>${count(store.units)}</strong>Tovar (dona)</span></div>
+      <small>${count(store.agents)} ta faol agent</small></a>`).join("")}</div>`
+      : `<section class="card work-section">${empty("Do‘konlar hali yo‘q", "Jamoa audit yuborishi uchun birinchi do‘konni qo‘shing.", "store")}</section>`;
     $("add-store").onclick = () => openEditor("Yangi do‘kon", fields, async values => {
       await rastaJson("/api/stores", "POST", values);
-      await render(stores);
-    });
-    body.querySelectorAll("[data-store]").forEach(button => button.onclick = () => {
-      const store = rows.find(row => row.id === Number(button.dataset.store));
-      openEditor("Do‘konni tahrirlash", fields, async values => {
-        await rastaJson(`/api/stores/${store.id}`, "PATCH", values);
-        await render(stores);
-      }, store);
+      await render(() => stores(days));
     });
   }
   rastaSession.then(value => {

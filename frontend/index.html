@@ -2,7 +2,7 @@
 <html lang="uz">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Javon rasmlaridan mahsulotlar, javondagi ulush va bo‘sh joylarni tahlil qiling.">
 <title>Javon tahlili · Rasta AI</title>
 <link rel="stylesheet" href="/static/app.css?v=workspace1">
@@ -16,8 +16,14 @@
 <main class="page workspace-page" data-view="analysis">
   <div class="work-heading">
     <div><h1>Javon tahlili</h1><p>Javon rasmini yuklang, natijani tekshiring va hisobotni yuboring.</p></div>
-    <a class="btn" href="/reports" id="historyLink" hidden data-icon="report">Hisobotlar</a>
+    <div class="page-actions"><a class="btn" href="/field" id="visitLink" hidden data-icon="visit">Tashrif</a>
+      <a class="btn" href="/reports" id="historyLink" hidden data-icon="report">Hisobotlar</a></div>
   </div>
+  <section class="card card-pad" id="visitPrompt" hidden>
+    <h2 class="section-title">Do‘konda tashrifni boshlang</h2>
+    <p id="visitPromptText">Biriktirilgan do‘konni tanlagach, shu tashrifga fotoaudit qo‘sha olasiz.</p>
+    <a href="/field" class="btn primary" data-icon="visit">Tashriflar</a>
+  </section>
   <ol class="analysis-flow" aria-label="Javon tahlili bosqichlari">
     <li aria-current="step" data-phase="photo"><span class="flow-icon" data-icon="image"></span>Rasm tanlash</li>
     <li data-phase="result"><span class="flow-icon" data-icon="scan"></span>Natijani ko‘rish</li>

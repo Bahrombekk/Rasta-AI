@@ -29,6 +29,7 @@ from ..inference import InferenceUnavailable, RemoteInference
 from .accounts import Accounts, SESSION_COOKIE
 from .session_api import session_router
 from .workspace_api import router as workspace_router
+from .field_api import router as field_router
 
 STATIC = ROOT / "frontend"
 MAX_SIDE = 2000                    # katta telefon rasmlari shu o'lchamgacha kichraytiriladi
@@ -284,6 +285,7 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
     app.include_router(session_router(accounts, secure_cookies, workspaces=workspaces))
     if workspaces is not None:
         app.include_router(workspace_router(workspaces))
+        app.include_router(field_router(workspaces.field, get_pipe, State.lock))
 
     def check_admin(token):
         if accounts is None:
@@ -339,7 +341,7 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
         for path, filename in {"/": "index.html", "/admin": "admin.html", "/login": "login.html",
                                "/team": "team.html", "/account": "account.html", "/dashboard": "workspace.html",
                                "/reports": "workspace.html", "/organizations": "workspace.html", "/platform": "workspace.html",
-                               "/members": "workspace.html", "/stores": "workspace.html"}.items():
+                               "/members": "workspace.html", "/stores": "workspace.html", "/field": "field.html"}.items():
             app.add_api_route(path, endpoint(filename), methods=["GET"])
 
     @app.get("/media/{sku}/{name}")
@@ -523,7 +525,15 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
 
     @app.post("/api/analyze")
     def analyze(request: Request, image: UploadFile = File(...), roi: str = Form(""),
-                roi_normalized: bool = Form(False)):
+                roi_normalized: bool = Form(False), visit_id: int | None = Form(None, gt=0)):
+        user = request.state.user
+        visit = None
+        if workspaces is not None and user["role"] == "operator":
+            if visit_id is None:
+                raise HTTPException(400, "Rasm tahlili uchun avval do‘konda tashrifni boshlang.")
+            visit = workspaces.field.own_visit(user, visit_id)
+            if visit is None:
+                raise HTTPException(404, "Ochiq tashrif topilmadi.")
         img = read_image(read_upload(image))
         region = None
         if roi.strip():
@@ -555,7 +565,13 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
         if workspaces is not None:
             with io.BytesIO() as buf:
                 Image.fromarray(img).save(buf, "JPEG", quality=90)
-                data["report_id"] = workspaces.create_draft(request.state.user, data, buf.getvalue())
+                if visit is not None:
+                    data["visit_id"] = visit_id
+                    data["visit_store_id"] = visit["store_id"]
+                try:
+                    data["report_id"] = workspaces.create_draft(user, data, buf.getvalue(), visit_id if visit is not None else None)
+                except ValueError as exc:
+                    raise HTTPException(400, str(exc)) from exc
         return JSONResponse(data)
 
     @app.get("/api/health")

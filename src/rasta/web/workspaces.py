@@ -8,6 +8,7 @@ import time
 from uuid import uuid4
 
 from .accounts import new_password, username_key
+from .field import FieldOperations
 
 TASHKENT = timezone(timedelta(hours=5))
 
@@ -80,6 +81,7 @@ class Workspaces:
                 SELECT id,1,'org_admin' FROM users WHERE role='admin'
                 AND id NOT IN (SELECT user_id FROM members)
             """)
+        self.field = FieldOperations(self.db)
 
     def identity(self, user):
         if not user or user["role"] == "super_admin":
@@ -222,27 +224,47 @@ class Workspaces:
                 raise ValueError("Bu nomdagi do‘kon mavjud.") from exc
             return bool(cursor.rowcount)
 
-    def create_draft(self, user, data, photo):
+    def create_draft(self, user, data, photo, visit_id=None):
         now = int(time.time())
         report_id = uuid4().hex
         summary = data["summary"]
         with self.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if visit_id is not None and self.field.own_visit(user, visit_id, db) is None:
+                raise ValueError("Tashrif ochiq va do‘kon sizga biriktirilgan bo‘lishi kerak.")
             db.execute("DELETE FROM reports WHERE status='draft' AND created<?", (now - 86400,))
             db.execute("""
                 DELETE FROM reports WHERE id IN (SELECT id FROM reports
                 WHERE org_id=? AND author_id=? AND status='draft' ORDER BY created DESC,rowid DESC LIMIT -1 OFFSET 19)
             """, (user["org_id"], user["id"]))
             db.execute("""
-                INSERT INTO reports(id,org_id,author_id,status,result,photo,created,products,recognized,gaps)
-                VALUES(?,?,?,'draft',?,?,?,?,?,?)
+                INSERT INTO reports(id,org_id,author_id,status,result,photo,created,products,recognized,gaps,visit_id)
+                VALUES(?,?,?,'draft',?,?,?,?,?,?,?)
             """, (report_id, user["org_id"], user["id"], json.dumps(data, ensure_ascii=False), photo, now,
-                  summary["num_products"], summary["num_known"], summary["oos_gaps"]))
+                  summary["num_products"], summary["num_known"], summary["oos_gaps"], visit_id))
         return report_id
 
     def submit(self, user, report_id, store_id, note):
         now = int(time.time())
         note = note.strip()
         with self.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if user["role"] == "operator":
+                existing = db.execute("""
+                    SELECT r.status,r.store_id,r.visit_id,v.store_id AS visit_store,v.finished
+                    FROM reports r LEFT JOIN field_visits v ON v.id=r.visit_id
+                    WHERE r.id=? AND r.org_id=? AND r.author_id=?
+                """, (report_id, user["org_id"], user["id"])).fetchone()
+                if existing is None:
+                    return None
+                if existing["status"] == "submitted" and existing["store_id"] == store_id:
+                    return "submitted"
+                if not self.field.assigned(db, user, store_id):
+                    raise ValueError("Do‘kon sizga biriktirilmagan.")
+                if existing["visit_id"] is not None and (
+                        existing["visit_store"] != store_id or
+                        (existing["status"] == "draft" and existing["finished"] is not None)):
+                    raise ValueError("Auditni shu do‘konning ochiq tashrifi orqali yuboring.")
             changed = db.execute("""
                 UPDATE reports SET status='submitted',store_id=?,note=?,submitted=?,
                 reviewed=NULL,reviewer_id=NULL,feedback=''
@@ -306,7 +328,7 @@ class Workspaces:
     def report(self, user, report_id, *, photo=False):
         where, args = self._visibility(user)
         columns = "r.photo" if photo else """r.id,r.status,r.created,r.submitted,r.reviewed,r.note,r.feedback,
-                   r.result,r.store_id,s.name AS store,a.username AS author,v.username AS reviewer"""
+                r.result,r.store_id,r.visit_id,s.name AS store,a.username AS author,v.username AS reviewer"""
         with self.db() as db:
             row = db.execute(f"""
                 SELECT {columns} FROM reports r LEFT JOIN stores s ON s.id=r.store_id

@@ -69,7 +69,8 @@ python -m pytest tests -q                 # 58 ta test
 
 - **Super admin** platforma statistikasi (`/platform`) va korxonalarni (`/organizations`) boshqaradi. Platforma hamda har bir korxona uchun 7, 30 va 90 kunlik audit statistikasi, tekshiruv navbati va boshqaruv tarixi mavjud.
 - **Korxona admini** (`/dashboard`) o‘z korxonasi statistikasini ko‘radi, katalog (`/admin`), do‘konlar (`/stores`) va operatorlar (`/members`)ni boshqaradi hamda auditlarni ko‘rib chiqadi.
-- **Operator** (`/`) javon rasmini yuklaydi, zona tanlaydi, AI natijasini ko‘radi va do‘kon bilan birga korxonasiga yuboradi. O‘z auditlari va admin izohlari `/reports` sahifasida.
+- **Agent** (`/field`) biriktirilgan do‘konlar va topshiriqlarni ko‘radi. Ochiq tashrifda fotoaudit yuboradi, topshirilgan SKU va dona sonini qayd etadi, topshiriqlarni va tashrifni yakunlaydi. O‘z auditlari va admin izohlari `/reports` sahifasida. Mavjud `operator` hisoblari Agent sifatida ishlaydi.
+- **Tashriflar** (`/field`) korxona adminiga agentga do‘kon biriktirish, fotoaudit/tovar/boshqa ish turidagi topshiriq berish va tashrif tafsilotini ko‘rish imkonini beradi. **Do‘konlar** (`/stores`) tashriflar, faol agentlar, auditlar, topshiriqlar va topshirilgan tovar bo‘yicha davr statistikasini ko‘rsatadi.
 - **Hisobotlar** (`/reports`) holat, do‘kon va Toshkent vaqti bo‘yicha sana oralig‘ida filtrlanadi. Korxona admini yuborgan xodim bo‘yicha ham qidiradi va 10 000 tagacha yuborilgan auditni CSV qilib yuklaydi. Bosh paneldagi holat, do‘kon va xodim havolalari shu filtrlarga olib boradi.
 - **Hisob** (`/account`) joriy parolni almashtiradi va eski sessiyalarni yakunlaydi.
 

@@ -1,6 +1,7 @@
 import csv
 from datetime import datetime, timezone
 import io
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
@@ -60,14 +61,47 @@ def test_organization_boundaries_and_shelf_review(tmp_path, monkeypatch):
         foreign_store = other.post("/api/stores", headers=HEADERS, json={"name": "Foreign"}).json()["id"]
         assert other.patch(f"/api/stores/{store}", headers=HEADERS, json={"name": "Blocked"}).status_code == 404
         assert admin.patch(f"/api/stores/{store}", headers=HEADERS, json={"name": "Tashkent Shop"}).status_code == 200
+        assert operator.get("/api/stores").json()["stores"] == []
+        assert operator.post("/api/field/visits", headers=HEADERS, json={"store_id": store}).status_code == 400
+        assert operator.post("/api/analyze", headers=HEADERS, files=image).status_code == 400
+        assignment = f"/api/field/agents/{member_id}/stores"
+        assert other.put(assignment, headers=HEADERS, json={"store_ids": [foreign_store]}).status_code == 404
+        assert admin.put(assignment, headers=HEADERS, json={"store_ids": [foreign_store]}).status_code == 400
+        assert admin.put(assignment, headers=HEADERS, json={"store_ids": [store, store]}).json()["store_ids"] == [store]
         assert [row["id"] for row in operator.get("/api/stores").json()["stores"]] == [store]
-        response = operator.post("/api/analyze", headers=HEADERS, files=image)
+        visit_id = operator.post("/api/field/visits", headers=HEADERS, json={"store_id": store}).json()["id"]
+        visit_url = f"/api/field/visits/{visit_id}"
+        assert operator.post("/api/field/visits", headers=HEADERS, json={"store_id": store}).json()["id"] == visit_id
+        assert other.get(visit_url).status_code == 404
+        assert operator.post(visit_url + "/finish", headers=HEADERS, json={}).status_code == 400
+        assert operator.get(visit_url + "/products").json()["products"][0]["sku_id"] == "cola"
+        task = admin.post("/api/field/tasks", headers=HEADERS, json={
+            "store_id": store, "agent_id": member_id, "title": "Check shelf", "kind": "audit",
+        })
+        assert task.status_code == 201
+        task_url = f"/api/field/tasks/{task.json()['id']}/complete"
+        assert operator.post(task_url, headers=HEADERS, json={"visit_id": visit_id}).status_code == 400
+        delivery = {"request_key": str(uuid4()), "sku_id": "cola", "quantity": 6}
+        recorded = operator.post(visit_url + "/deliveries", headers=HEADERS, json=delivery)
+        assert recorded.status_code == 201
+        assert operator.post(visit_url + "/deliveries", headers=HEADERS, json=delivery).json() == recorded.json()
+        assert operator.post(visit_url + "/deliveries", headers=HEADERS, json={**delivery, "quantity": 7}).status_code == 400
+        response = operator.post("/api/analyze", headers=HEADERS, data={"visit_id": visit_id}, files=image)
         assert response.status_code == 200
+        assert response.json()["visit_store_id"] == store
         report = "/api/reports/" + response.json()["report_id"]
         assert admin.get(report).status_code == 404
         assert operator.post(report + "/submit", headers=HEADERS, json={"store_id": foreign_store}).status_code == 400
         assert operator.post(report + "/submit", headers=HEADERS, json={"store_id": store}).status_code == 200
         assert operator.post(report + "/submit", headers=HEADERS, json={"store_id": store}).status_code == 200
+        assert operator.post(task_url, headers=HEADERS, json={"visit_id": visit_id}).status_code == 200
+        assert operator.post(visit_url + "/finish", headers=HEADERS, json={}).status_code == 200
+        assert operator.post("/api/analyze", headers=HEADERS, data={"visit_id": visit_id}, files=image).status_code == 404
+        field = admin.get("/api/field/overview", params={"store_id": store, "days": "7"}).json()
+        assert (field["totals"]["finished"], field["totals"]["units"], field["totals"]["tasks_done"]) == (1, 6, 1)
+        assert field["totals"]["audits"] == field["visited_stores"] == 1
+        assert field["delivery_items"][0]["units"] == 6
+        assert other.get("/api/field/overview", params={"store_id": store}).status_code == 404
         assert other.get(report).status_code == 404
         assert other.get(report + "/photo").status_code == 404
         assert admin.get(report + "/photo").headers["content-type"] == "image/jpeg"

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Tashriflar · Rasta AI</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/workspace.css">
+  <script src="/static/common.js" defer></script>
+  <script src="/static/field.js" defer></script>
+</head>
+<body>
+  <header data-shell data-page="field"></header>
+  <main class="page workspace-page" data-view="field" id="field">
+    <div class="work-heading"><div><h1 id="field-title">Tashriflar</h1><p id="field-subtitle"></p></div>
+      <div class="page-actions" id="field-actions"></div></div>
+    <div class="work-error" id="field-error" role="alert" hidden></div>
+    <div id="field-body" aria-busy="true"><p class="work-loading" role="status">Yuklanmoqda…</p></div>
+    <dialog class="edit-dialog" id="field-dialog" aria-labelledby="field-dialog-title">
+      <form id="field-form">
+        <div class="dialog-head"><h2 id="field-dialog-title"></h2><button class="iconbtn" type="button" aria-label="Yopish" id="field-close" data-icon="x"></button></div>
+        <div class="dialog-body"><div id="field-inputs"></div><div class="err" id="field-dialog-error" role="alert"></div></div>
+        <div class="dialog-actions"><button class="btn primary" type="submit" id="field-save">Saqlash</button></div>
+      </form>
+    </dialog>
+  </main>
+</body>
+</html>

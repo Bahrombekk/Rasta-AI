@@ -147,7 +147,8 @@ def router(workspaces):
     @api.get("/stores")
     def stores(request: Request):
         user = require(request, "org_admin", "operator")
-        return {"stores": workspaces.stores(user["org_id"])}
+        rows = workspaces.field.scoped_stores(user) if user["role"] == "operator" else workspaces.stores(user["org_id"])
+        return {"stores": rows}
 
     @api.post("/stores", status_code=201)
     def add_store(request: Request, body: Store):

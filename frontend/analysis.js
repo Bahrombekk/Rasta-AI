@@ -4,11 +4,33 @@
   let file = null, img = null, pts = [], drawing = false, closed = false;
   let R = null, showBoxes = true, hl = null, analysis = null, pendingImage = null;
   let canTeach = false;
+  let activeVisit = null;
+  let agent = false;
   const sendForm = $("sendForm");
-  rastaSession.then(session => {
+  rastaSession.then(async session => {
     canTeach = !session.workspaces || session.user?.role === "org_admin";
     $("historyLink").hidden = !session.workspaces;
     $("submitPhase").hidden = !session.workspaces;
+    agent = session.workspaces && session.user?.role === "operator";
+    if (!agent) return;
+    $("start").hidden = true;
+    document.querySelector(".analysis-flow").hidden = true;
+    $("visitLink").hidden = false;
+    try {
+      const { visits } = await rastaJson("/api/field");
+      const requested = new URLSearchParams(location.search).get("visit");
+      const visit = visits.find(row => !row.finished && (!requested || String(row.id) === requested));
+      if (visit) {
+        activeVisit = visit;
+        $("visitLink").href = `/field?id=${visit.id}`;
+        $("start").hidden = false;
+        document.querySelector(".analysis-flow").hidden = false;
+        return;
+      }
+    } catch (e) {
+      $("visitPromptText").textContent = e.message;
+    }
+    $("visitPrompt").hidden = false;
   });
   function phase(current) {
     for (const item of document.querySelectorAll("[data-phase]")) {
@@ -25,7 +47,7 @@
 
   // ---------- rasm ----------
   function pick(f) {
-    if (!f) return;
+    if (!f || (agent && !activeVisit)) return;
     const error = $("fileErr");
     error.hidden = false;
     if (f.size > 20 * 1024 * 1024) { error.textContent = "Fayl 20 MB dan katta."; return; }
@@ -187,6 +209,7 @@
     if (!file || btn.disabled) return;
     if (drawing) { $("err").textContent = "Zonani yoping yoki bekor qiling."; return; }
     const fd = new FormData(); fd.append("image", file);
+    if (activeVisit) fd.append("visit_id", String(activeVisit.id));
     if (closed) {
       fd.append("roi", JSON.stringify(pts.map(([x, y]) => [x / cv.width, y / cv.height])));
       fd.append("roi_normalized", "true");
@@ -258,7 +281,7 @@
       .join("");
     $("gapLegend").hidden = !$("gapLegend").children.length;
     sel.clear(); teachUi();
-    setupSubmission(d.report_id);
+    setupSubmission(d.report_id, d.visit_store_id);
 
     const tiles = [
       kpi("box", "Mahsulotlar", s.num_products, `<div class="meter"><i style="width:100%"></i></div>`),
@@ -317,7 +340,7 @@
     draw();
   }
 
-  async function setupSubmission(reportId) {
+  async function setupSubmission(reportId, visitStoreId) {
     $("sendPanel").hidden = !reportId;
     if (!reportId) return;
     sendForm.reset();
@@ -328,9 +351,11 @@
     try {
       const { stores } = await rastaJson("/api/stores");
       if (R?.report_id !== reportId) return;
-      sendForm.elements.store.replaceChildren(new Option("Do‘konni tanlang", ""), ...stores.map(store => new Option(store.name, store.id)));
-      $("sendBtn").disabled = stores.length === 0;
-      if (!stores.length) $("sendError").textContent = "Korxona admini avval do‘kon qo‘shishi kerak.";
+      const available = visitStoreId ? stores.filter(store => store.id === visitStoreId) : stores;
+      sendForm.elements.store.replaceChildren(new Option("Do‘konni tanlang", ""), ...available.map(store => new Option(store.name, store.id)));
+      if (available.length === 1) sendForm.elements.store.value = String(available[0].id);
+      $("sendBtn").disabled = available.length === 0;
+      if (!available.length) $("sendError").textContent = "Do‘kon biriktirilishini korxona adminidan tekshirtiring.";
     } catch (error) {
       if (R?.report_id === reportId) $("sendError").textContent = error.message;
     }

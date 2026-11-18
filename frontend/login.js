@@ -6,8 +6,14 @@ const passwordInput = document.getElementById("login-password");
 const togglePassword = document.getElementById("toggle-password");
 const next = new URLSearchParams(location.search).get("next");
 function target(session) {
-  return ["/", "/admin", "/team", "/account", "/platform", "/organizations", "/dashboard", "/reports", "/members", "/stores"].includes(next)
-    ? next : session.workspaces ? rastaHome(session.user) : "/";
+  if (next?.startsWith("/")) {
+    try {
+      const url = new URL(next, location.origin);
+      const pages = ["/", "/admin", "/team", "/account", "/platform", "/organizations", "/dashboard", "/reports", "/members", "/stores", "/field"];
+      if (url.origin === location.origin && pages.includes(url.pathname)) return url.pathname + url.search;
+    } catch { /* fall back to the role's home screen */ }
+  }
+  return session.workspaces ? rastaHome(session.user) : "/";
 }
 
 function showError(message = "") {
