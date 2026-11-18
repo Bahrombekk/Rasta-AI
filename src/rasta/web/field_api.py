@@ -92,7 +92,8 @@ def router(field, get_pipe, catalog_lock):
             raise HTTPException(404, "Ochiq tashrif topilmadi.")
         pipe = get_pipe()
         with catalog_lock:
-            return {"products": [{"sku_id": sku, "name": info["name"], "brand": info.get("brand")}
+            return {"products": [{"sku_id": sku, "name": info["name"], "brand": info.get("brand"),
+                                  "barcode": info.get("barcode")}
                                  for sku, info in pipe.catalog.sku_info().items()]}
 
     @api.post("/visits/{visit_id}/deliveries", status_code=201)

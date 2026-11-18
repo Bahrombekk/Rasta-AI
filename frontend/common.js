@@ -128,7 +128,7 @@
       if (session.enabled && !session.user) { location.replace(loginUrl()); return; }
       const role = session.user?.role;
       const menu = session.workspaces
-        ? ({super_admin: ["platform","organizations"], org_admin: ["dashboard","field","analysis","reports","catalog","stores","members"],
+        ? ({super_admin: ["platform","organizations","catalog"], org_admin: ["dashboard","field","analysis","reports","catalog","stores","members"],
             operator: ["field","analysis","reports"]})[role] || []
         : ["analysis", "catalog", ...(role === "super_admin" ? ["team"] : [])];
       if (session.workspaces && page !== "account" && !menu.includes(page)) {

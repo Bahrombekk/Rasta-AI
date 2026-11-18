@@ -133,6 +133,10 @@ class Workspaces:
                 FROM organizations o ORDER BY o.id
             """)]
 
+    def organization_exists(self, org_id):
+        with self.db() as db:
+            return db.execute("SELECT 1 FROM organizations WHERE id=?", (org_id,)).fetchone() is not None
+
     def update_org(self, org_id, name, active, actor_id=None):
         name = name.strip()
         if not name:

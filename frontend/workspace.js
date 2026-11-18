@@ -398,7 +398,8 @@
         ["Korxona","Holat","Hisoblar","Do‘konlar","Auditlar",""], rows.map(row => `<tr><td><strong>${esc(row.name)}</strong></td>
           <td>${tag(row.active ? "Faol" : "To‘xtatilgan",row.active ? "approved" : "returned")}</td>
           <td>${count(row.members)}</td><td>${count(row.stores)}</td><td>${count(row.reports)}</td>
-          <td>${link(`/organizations?id=${row.id}`,"Boshqarish")}</td></tr>`).join(""))}</section>`;
+          <td><div class="page-actions">${link(`/admin?organization=${row.id}`,"Katalog")}
+            ${link(`/organizations?id=${row.id}`,"Boshqarish")}</div></td></tr>`).join(""))}</section>`;
     $("add-org").onclick = () => openEditor("Korxona va birinchi admin", nameField("Korxona nomi") + usernameField + passwordField(), async values => {
       const org = await rastaJson("/api/organizations", "POST", values);
       location.assign(`/organizations?id=${org.id}`);
@@ -411,6 +412,7 @@
   }
   async function organizationDetails(org, days = requestedDays()) {
     heading(org.name, org.active ? "Faol ish maydoni" : "To‘xtatilgan korxona", link("/organizations", "Korxonalar")
+      + link(`/admin?organization=${org.id}`, "Mahsulot katalogi", false, "box")
       + periodLabel + button("edit-org", "Sozlamalar", "building", false) + button("add-member", "Admin yaratish"));
     bindPeriod(days, next => organizationDetails(org, next));
     $("edit-org").onclick = () => openEditor("Korxona sozlamalari", nameField("Korxona nomi") + activeField, async values => {

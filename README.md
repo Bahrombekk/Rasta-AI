@@ -78,6 +78,8 @@ Docker uchta xizmatni ishga tushiradi. **Frontend** Nginx orqali saytni beradi. 
 
 Sessiya korxona katalogi, SKU rasmlari va auditlar doirasini belgilaydi. Oldingi Docker admin hisoblari birinchi ishga tushishda mavjud katalog bilan **Asosiy korxona**ga biriktiriladi. Mahsulot rejasi va joylashtirish chegaralari [PRODUCT.md](PRODUCT.md) faylida.
 
+Katalogda mahsulotlar nom, SKU, brend va shtrix-kod bo‘yicha qidiriladi. Natijani kategoriya, brend yoki namuna rasmlari bo‘yicha filtrlash va CSV formatida yuklash mumkin. Korxona admini SKU, kategoriya, shtrix-kod va AI namunalarini boshqaradi. Super admin katalogni korxona kesimida ko‘radi va eksport qiladi. Agent tovar topshirish vaqtida mahsulotni nom, SKU yoki shtrix-kod bo‘yicha topadi.
+
 ## Docker’da ishga tushirish
 
 1. `config.yaml` dagi detektor og‘irliklarini `models/weights/` ga joylashtiring. `models/negatives/aptash_v1.npz` ixtiyoriy.

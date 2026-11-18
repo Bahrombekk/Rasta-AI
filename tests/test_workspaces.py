@@ -40,13 +40,22 @@ def test_organization_boundaries_and_shelf_review(tmp_path, monkeypatch):
 
         for client, brand in [(admin, "A"), (other, "B")]:
             assert client.post("/api/products", headers=HEADERS, data={
-                "name": "Cola", "brand": brand,
+                "name": "Cola", "brand": brand, "category": "Ichimliklar", "barcode": "001234567890",
             }, files=packshot).status_code == 200
         assert admin.get("/api/products/cola").json()["brand"] == "A"
         assert other.get("/api/products/cola").json()["brand"] == "B"
         assert (tmp_path / "images" / "cola" / "000.jpg").exists()
         assert (tmp_path / "images" / ".organizations" / str(org_id) / "cola" / "000.jpg").exists()
         assert admin.get("/media/cola/000.jpg").status_code == 200
+        scope = f"?organization={org_id}"
+        assert root.get("/api/products").status_code == 400
+        assert root.get("/api/products?organization=99999").status_code == 404
+        assert root.get("/api/products" + scope).json()["products"][0]["brand"] == "B"
+        assert root.get("/api/products/cola?organization=1").json()["brand"] == "A"
+        assert root.get("/media/cola/000.jpg" + scope).status_code == 200
+        assert root.delete("/api/products/cola" + scope, headers=HEADERS).status_code == 403
+        assert admin.get("/api/products" + scope).status_code == 403
+        assert admin.get("/media/cola/000.jpg" + scope).status_code == 403
 
         response = admin.post("/api/members", headers=HEADERS, json={"username": "field-user", "password": INITIAL})
         assert response.status_code == 201
@@ -70,6 +79,8 @@ def test_organization_boundaries_and_shelf_review(tmp_path, monkeypatch):
         assert admin.put(assignment, headers=HEADERS, json={"store_ids": [store, store]}).json()["store_ids"] == [store]
         assert [row["id"] for row in operator.get("/api/stores").json()["stores"]] == [store]
         visit_id = operator.post("/api/field/visits", headers=HEADERS, json={"store_id": store}).json()["id"]
+        visit_products = operator.get(f"/api/field/visits/{visit_id}/products").json()["products"]
+        assert [(product["sku_id"], product["barcode"]) for product in visit_products] == [("cola", "001234567890")]
         visit_url = f"/api/field/visits/{visit_id}"
         assert operator.post("/api/field/visits", headers=HEADERS, json={"store_id": store}).json()["id"] == visit_id
         assert other.get(visit_url).status_code == 404

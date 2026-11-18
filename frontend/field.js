@@ -170,12 +170,25 @@
       const { products } = await rastaJson(`/api/field/visits/${visit.id}/products`);
       if (!products.length) { error("Tovarni qayd etish uchun korxona admini katalogga SKU qo‘shishi kerak."); return; }
       const key = crypto.randomUUID();
-      open("Tovar topshirish", `<label class="field"><span>Mahsulot (SKU)</span><select name="sku_id" class="input" required>
-        <option value="">Mahsulotni tanlang</option>${options(products, "name", "sku_id")}</select></label>
+      open("Tovar topshirish", `<label class="field"><span>Mahsulot qidirish</span>
+        <input id="delivery-query" type="search" class="input" placeholder="Nom, SKU yoki shtrix-kod"></label>
+        <label class="field"><span>Mahsulot (SKU)</span><select name="sku_id" class="input" required></select></label>
         <label class="field"><span>Miqdor (dona)</span><input name="quantity" type="number" inputmode="numeric" required class="input" min="1" max="1000000"></label>`, values =>
         rastaJson(`/api/field/visits/${visit.id}/deliveries`, "POST", {
           request_key: key, sku_id: values.get("sku_id"), quantity: Number(values.get("quantity"))
         }));
+      const query = $("delivery-query");
+      const select = form.elements.namedItem("sku_id");
+      function filterProducts() {
+        const text = query.value.trim().toLowerCase();
+        const found = products.filter(p => [p.name, p.brand, p.sku_id, p.barcode].join(" ").toLowerCase().includes(text));
+        const selected = select.value;
+        select.replaceChildren(new Option(found.length ? "Mahsulotni tanlang" : "Mahsulot topilmadi", ""),
+          ...found.map(p => new Option(`${p.name} · ${p.sku_id}`, p.sku_id)));
+        if (found.some(p => p.sku_id === selected)) select.value = selected;
+      }
+      query.oninput = filterProducts;
+      filterProducts();
     } catch (e) { error(e.message); }
   }
 

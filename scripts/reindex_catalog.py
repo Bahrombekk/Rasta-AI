@@ -43,7 +43,7 @@ def main():
         if args.dry_run:
             print(f"  {sku}: {len(files)} rasm (eski vektorlar: {v['count']})")
             continue
-        n = web.rebuild_sku(pipe, sku, v["name"], v.get("brand"))
+        n = web.rebuild_sku(pipe, sku, v["name"], v.get("brand"), web.catalog_metadata(v))
         print(f"  {sku}: {len(files)} rasm -> {n} vektor (oldin {v['count']})")
     if not args.dry_run and not skipped:
         pipe.catalog.mark_current()

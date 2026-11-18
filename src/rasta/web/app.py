@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
@@ -154,6 +154,25 @@ def image_files(sku: str) -> list[Path]:
     return sorted(d.glob("*.jpg")) if d.is_dir() else []
 
 
+def catalog_metadata(info: dict) -> dict:
+    return {key: info.get(key) for key in ("category", "barcode")}
+
+
+async def catalog_metadata_patch(request: Request) -> dict:
+    form = await request.form()
+    return {key: form[key].strip() or None for key in ("category", "barcode")
+            if isinstance(form.get(key), str)}
+
+
+def validate_catalog_metadata(category, barcode, products, sku):
+    if category is not None and len(category) > 80:
+        raise HTTPException(400, "Kategoriya 80 belgidan oshmasligi kerak.")
+    if barcode and not re.fullmatch(r"[0-9]{4,32}", barcode):
+        raise HTTPException(400, "Shtrix-kod 4–32 ta raqamdan iborat bo‘lishi kerak.")
+    if barcode and any(key != sku and info.get("barcode") == barcode for key, info in products.items()):
+        raise HTTPException(409, "Bu shtrix-kod katalogdagi boshqa mahsulotga biriktirilgan.")
+
+
 def save_images(sku: str, imgs: list, prefix: str = "", max_side: Optional[int] = 800) -> list[Path]:
     """Mahsulot rasmlarini saqlash. prefix "c" — javondan o'rgatilgan crop (qayta
     indekslashda augmentatsiyasiz, "crop" sifatida qo'shiladi)."""
@@ -191,7 +210,7 @@ def add_with_images(pipe, sku: str, name: str, imgs: list, brand: Optional[str],
         raise
 
 
-def rebuild_sku(pipe, sku: str, name: str, brand: Optional[str]) -> int:
+def rebuild_sku(pipe, sku: str, name: str, brand: Optional[str], extra: Optional[dict] = None) -> int:
     """SKU vektorlarini saqlangan rasmlardan qaytadan yaratish (rasm o'chirilganda,
     onboarding mantiqi o'zgarganda). Javon crop'lari va katalog rasmlari alohida."""
     files = image_files(sku)
@@ -205,9 +224,9 @@ def rebuild_sku(pipe, sku: str, name: str, brand: Optional[str]) -> int:
     n = 0
     with pipe.catalog.replace_sku(sku):
         if shots:
-            n += pipe.add_product(sku, name, list(load(shots)), brand=brand)
+            n += pipe.add_product(sku, name, list(load(shots)), brand=brand, extra=extra)
         if crops:
-            n += pipe.add_product(sku, name, list(load(crops)), brand=brand,
+            n += pipe.add_product(sku, name, list(load(crops)), brand=brand, extra=extra,
                                   augment=False, source="crop")
     return n
 
@@ -311,13 +330,25 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
             if not request.state.user or request.state.user["role"] != "super_admin":
                 return JSONResponse({"detail": "Super admin ruxsati kerak."}, status_code=403)
         user = request.state.user or {}
+        org_id = user.get("org_id")
         if workspaces is not None:
-            catalog_action = path == "/api/products" or path.startswith("/api/products/") or path in {"/api/teach", "/api/reindex"}
+            catalog_read = path == "/api/products" or path.startswith("/api/products/") or path.startswith("/media/")
+            catalog_action = (catalog_read and not path.startswith("/media/")) or path in {"/api/teach", "/api/reindex"}
             analysis_action = path == "/api/analyze" or path.startswith("/media/")
-            if (catalog_action and user.get("role") != "org_admin"
+            selected = request.query_params.get("organization")
+            platform_read = catalog_read and request.method in {"GET", "HEAD"} and user.get("role") == "super_admin"
+            if platform_read:
+                if not selected or not re.fullmatch(r"[0-9]{1,18}", selected):
+                    return JSONResponse({"detail": "Katalog uchun korxonani tanlang."}, status_code=400)
+                org_id = int(selected)
+                if not await run_in_threadpool(workspaces.organization_exists, org_id):
+                    return JSONResponse({"detail": "Korxona topilmadi."}, status_code=404)
+            elif catalog_read and selected is not None:
+                return JSONResponse({"detail": "Ushbu korxona katalogiga ruxsat yo‘q."}, status_code=403)
+            elif (catalog_action and user.get("role") != "org_admin"
                     or analysis_action and user.get("role") not in {"org_admin", "operator"}):
                 return JSONResponse({"detail": "Ushbu amal uchun ruxsat yetarli emas."}, status_code=403)
-        scope = organization_scope.set(user.get("org_id"))
+        scope = organization_scope.set(org_id)
         try:
             response = await call_next(request)
         finally:
@@ -360,6 +391,7 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
             for sku, v in pipe.catalog.sku_info().items():
                 photos = image_files(sku)
                 out.append({"sku_id": sku, "name": v["name"], "brand": v.get("brand"),
+                            **catalog_metadata(v),
                             "images": len(photos), "vectors": v["count"],
                             "thumb": f"/media/{sku}/{photos[0].name}" if photos else None})
         out.sort(key=lambda r: (r.get("brand") or "", r["name"]))
@@ -367,6 +399,7 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
 
     @app.post("/api/products")
     def add_product(name: str = Form(...), brand: str = Form(""), sku_id: str = Form(""),
+                    category: str = Form(""), barcode: str = Form(""),
                     files: list[UploadFile] = File(...),
                     x_admin_token: Optional[str] = Header(None)):
         check_admin(x_admin_token)
@@ -374,15 +407,19 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
         if not name:
             raise HTTPException(400, "Mahsulot nomini kiriting")
         sku = slug(sku_id or name)
+        category, barcode = category.strip() or None, barcode.strip() or None
         imgs = [read_image(read_upload(f)) for f in files if f.filename]
         if not imgs:
             raise HTTPException(400, "Kamida bitta rasm yuklang")
         pipe = get_pipe()
         with State.lock:
-            if sku in pipe.catalog.sku_info():
+            products = pipe.catalog.sku_info()
+            if sku in products:
                 raise HTTPException(409, f"Bu nomdagi mahsulot allaqachon bor ({sku}) — rasmni "
                                          "o'sha mahsulot sahifasidan qo'shing yoki boshqa nom bering")
-            n = add_with_images(pipe, sku, name, imgs, brand.strip() or None)
+            validate_catalog_metadata(category, barcode, products, sku)
+            n = add_with_images(pipe, sku, name, imgs, brand.strip() or None,
+                                extra={"category": category, "barcode": barcode})
         return {"sku_id": sku, "vectors": n, "images": len(imgs)}
 
     def product_or_404(pipe, sku: str) -> dict:
@@ -397,11 +434,13 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
         with State.lock:
             v = product_or_404(pipe, sku)
             return {"sku_id": sku, "name": v["name"], "brand": v.get("brand"), "vectors": v["count"],
+                    **catalog_metadata(v),
                     "images": [{"name": f.name, "url": f"/media/{sku}/{f.name}",
                                 "shelf": f.stem.startswith("c")} for f in image_files(sku)]}
 
     @app.patch("/api/products/{sku}")
     def edit_product(sku: str, name: str = Form(...), brand: str = Form(""),
+                     changes: dict = Depends(catalog_metadata_patch),
                      x_admin_token: Optional[str] = Header(None)):
         check_admin(x_admin_token)
         pipe = get_pipe()
@@ -409,9 +448,14 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
         if not name:
             raise HTTPException(400, "Mahsulot nomini kiriting")
         with State.lock:
-            product_or_404(pipe, sku)
-            pipe.catalog.update_sku(sku, name=name, brand=brand.strip() or None)
-        return {"sku_id": sku, "name": name, "brand": brand.strip() or None}
+            products = pipe.catalog.sku_info()
+            if sku not in products:
+                raise HTTPException(404, "Mahsulot topilmadi")
+            metadata = {**catalog_metadata(products[sku]), **changes}
+            validate_catalog_metadata(metadata["category"], metadata["barcode"], products, sku)
+            fields = {"name": name, "brand": brand.strip() or None, **metadata}
+            pipe.catalog.update_sku(sku, **fields)
+        return {"sku_id": sku, **fields}
 
     @app.post("/api/products/{sku}/images")
     def add_images(sku: str, files: list[UploadFile] = File(...),
@@ -423,7 +467,7 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
             raise HTTPException(400, "Kamida bitta rasm yuklang")
         with State.lock:
             v = product_or_404(pipe, sku)
-            n = add_with_images(pipe, sku, v["name"], imgs, v.get("brand"))
+            n = add_with_images(pipe, sku, v["name"], imgs, v.get("brand"), extra=catalog_metadata(v))
         return {"sku_id": sku, "added": len(imgs), "vectors": n}
 
     @app.delete("/api/products/{sku}/images/{name}")
@@ -441,7 +485,7 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
             bak = f.with_suffix(".jpg.del")
             f.rename(bak)
             try:
-                n = rebuild_sku(pipe, sku, v["name"], v.get("brand"))
+                n = rebuild_sku(pipe, sku, v["name"], v.get("brand"), catalog_metadata(v))
             except Exception:
                 bak.rename(f)
                 raise
@@ -494,14 +538,16 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
         pipe = get_pipe()
         sku = sku_id or slug(name)
         with State.lock:
+            metadata = None
             if sku_id:
                 existing = product_or_404(pipe, sku)
                 name, brand = existing["name"], existing.get("brand") or ""
+                metadata = catalog_metadata(existing)
             elif sku in pipe.catalog.sku_info():
                 raise HTTPException(409, f"Bu nomdagi mahsulot allaqachon bor ({sku}) — "
                                          "ro'yxatdan mavjud mahsulotni tanlang")
             n = add_with_images(pipe, sku, name, crops, brand.strip() or None, prefix="c",
-                                max_side=None, augment=False, source="crop")
+                                max_side=None, augment=False, source="crop", extra=metadata)
         return {"sku_id": sku, "name": name, "added": len(crops), "vectors": n}
 
     @app.post("/api/reindex")
@@ -517,7 +563,7 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
                 if not files:
                     skipped.append(sku)
                     continue
-                n = rebuild_sku(pipe, sku, v["name"], v.get("brand"))
+                n = rebuild_sku(pipe, sku, v["name"], v.get("brand"), catalog_metadata(v))
                 done.append({"sku_id": sku, "images": len(files), "vectors": n})
             if not skipped:
                 pipe.catalog.mark_current()    # hamma SKU joriy embedder bilan qayta qurildi

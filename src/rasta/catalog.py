@@ -362,12 +362,13 @@ class SkuCatalog:
         return dict(Counter(p.payload.get("sku_id", "?") for p in self._scroll()))
 
     def sku_info(self) -> dict[str, dict]:
-        """SKU_id -> {name, brand, count} (admin ro'yxati uchun)."""
+        """Return names, catalog metadata, and vector counts by SKU."""
         out: dict[str, dict] = {}
         for p in self._scroll():
             pl = p.payload or {}
             sku = pl.get("sku_id", "?")
             r = out.setdefault(sku, {"name": pl.get("name", sku), "brand": pl.get("brand"),
+                                     "category": pl.get("category"), "barcode": pl.get("barcode"),
                                      "count": 0})
             r["count"] += 1
         return out

@@ -27,7 +27,7 @@ class FakePipe:
 
     def add_product(self, sku, name, imgs, brand=None, **kw):
         v = np.eye(4, dtype=np.float32)[: len(imgs) % 4 + 1]
-        return self.catalog.add_sku(sku, name, v, extra={"brand": brand} if brand else None)
+        return self.catalog.add_sku(sku, name, v, extra={**(kw.get("extra") or {}), "brand": brand})
 
     def _result(self, img):
         dets = [Detection(Box(10, 10, 40, 90)), Detection(Box(50, 10, 80, 90))]
@@ -70,6 +70,24 @@ def test_pages_served(client):
     assert client.get("/static/common.js").status_code == 200
     assert "Mahsulot qo'shish" in client.get("/admin").text
     assert client.get("/static/app.css").status_code == 200
+
+
+def test_catalog_metadata_survives_photo_changes_and_reindex(client):
+    photos = [("files", ("a.jpg", jpg(), "image/jpeg"))]
+    sku = "/api/products/company_cola"
+    assert client.post("/api/products", data={
+        "name": "Cola", "sku_id": "company_cola", "category": "Ichimliklar", "barcode": "001234",
+    }, files=photos).status_code == 200
+    assert client.post("/api/products", data={"name": "Other", "barcode": "001234"},
+                       files=photos).status_code == 409
+    assert client.patch(sku, data={"name": "Cola 1L", "barcode": "abcd"}).status_code == 400
+    assert client.post(sku + "/images", files=photos).status_code == 200
+    assert client.delete(sku + "/images/000.jpg").status_code == 200
+    assert client.post("/api/reindex").status_code == 200
+    product = client.get(sku).json()
+    assert (product["category"], product["barcode"]) == ("Ichimliklar", "001234")
+    assert client.patch(sku, data={"name": "Cola 1L"}).json()["barcode"] == "001234"
+    assert client.patch(sku, data={"name": "Cola 1L", "barcode": ""}).json()["barcode"] is None
 
 
 def test_product_add_list_delete(client):
