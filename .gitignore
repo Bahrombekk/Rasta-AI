@@ -1,0 +1,33 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+pytest-of-*/
+torchinductor_*/
+.claude/
+.env
+.env.*
+!.env.example
+
+# Modellar va og'irliklar (katta fayllar)
+*.pt
+*.onnx
+*.engine
+models/weights/
+models/negatives/
+
+# Ma'lumotlar bazasi va data
+data/
+outputs/
+backup/
+photo_*.jpg
+
+# HuggingFace kesh
+.cache/
+
+# OS
+Thumbs.db
+.DS_Store

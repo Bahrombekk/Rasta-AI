@@ -1,0 +1,271 @@
+"""Veb-ilova API testi — og'ir modellarsiz (soxta pipeline + xotiradagi katalog)."""
+import io
+import sys
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+pytest.importorskip("fastapi")
+from fastapi.testclient import TestClient  # noqa: E402
+from PIL import Image  # noqa: E402
+
+from rasta.catalog import SkuCatalog  # noqa: E402
+from rasta.kpi import compute_kpi  # noqa: E402
+from rasta.types import AnalysisResult, Box, Detection, Match  # noqa: E402
+from rasta.web import app as web  # noqa: E402
+
+
+class FakePipe:
+    def __init__(self):
+        self.catalog = SkuCatalog(dim=4, path=":memory:", collection="web_t")
+        self.regions = []
+
+    def add_product(self, sku, name, imgs, brand=None, **kw):
+        v = np.eye(4, dtype=np.float32)[: len(imgs) % 4 + 1]
+        return self.catalog.add_sku(sku, name, v, extra={"brand": brand} if brand else None)
+
+    def _result(self, img):
+        dets = [Detection(Box(10, 10, 40, 90)), Detection(Box(50, 10, 80, 90))]
+        dets[0].match = Match("cola", "Cola", 0.9, 0.2, True, brand="ColaCo", level="sku")
+        dets[1].match = Match(None, None, 0.3, 0.0, False)
+        for d in dets:
+            d.row = 0
+        return AnalysisResult("x", (img.shape[1], img.shape[0]), dets, [], 1,
+                              compute_kpi(dets, [], 1, {"cola": "ColaCo"}))
+
+    def analyze_image(self, img, **kw):
+        return self._result(img)
+
+    def analyze_region(self, img, region, *a, **kw):
+        self.regions.append(region)
+        r = self._result(img)
+        r.roi = region
+        r.kpi["roi_shelf_fill_pct"] = 50.0
+        return r
+
+
+def jpg(w=120, h=100):
+    buf = io.BytesIO()
+    Image.new("RGB", (w, h), (200, 30, 40)).save(buf, "JPEG")
+    return buf.getvalue()
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    monkeypatch.delenv("RASTA_ADMIN_PASSWORD", raising=False)
+    app = web.create_app()
+    web.State.pipe = FakePipe()
+    web.State.images_dir = tmp_path
+    yield TestClient(app)
+    web.State.pipe = None
+
+
+def test_pages_served(client):
+    assert "Javon tahlili" in client.get("/").text
+    assert client.get("/static/common.js").status_code == 200
+    assert "Mahsulot qo'shish" in client.get("/admin").text
+    assert client.get("/static/app.css").status_code == 200
+
+
+def test_product_add_list_delete(client):
+    r = client.post("/api/products", data={"name": "Coca-Cola 1.5L", "brand": "Coca-Cola"},
+                    files=[("files", ("a.jpg", jpg(), "image/jpeg"))])
+    assert r.status_code == 200 and r.json()["sku_id"] == "coca_cola_1_5l"
+    ps = client.get("/api/products").json()["products"]
+    assert ps[0]["name"] == "Coca-Cola 1.5L" and ps[0]["brand"] == "Coca-Cola"
+    assert ps[0]["thumb"] and client.get(ps[0]["thumb"]).status_code == 200
+    assert client.delete("/api/products/coca_cola_1_5l").status_code == 200
+    assert client.get("/api/products").json()["products"] == []
+
+
+def test_product_validation(client):
+    r = client.post("/api/products", data={"name": "  "},
+                    files=[("files", ("a.jpg", jpg(), "image/jpeg"))])
+    assert r.status_code == 400
+    r = client.post("/api/products", data={"name": "X"},
+                    files=[("files", ("a.jpg", b"not an image", "image/jpeg"))])
+    assert r.status_code == 400
+
+
+def test_media_path_traversal_blocked(client):
+    assert client.get("/media/..%2F..%2Fconfig.yaml/x").status_code == 404
+
+
+def test_admin_password(client, monkeypatch):
+    monkeypatch.setenv("RASTA_ADMIN_PASSWORD", "s3cret")
+    files = [("files", ("a.jpg", jpg(), "image/jpeg"))]
+    assert client.post("/api/products", data={"name": "A"}, files=files).status_code == 401
+    ok = client.post("/api/products", data={"name": "A"}, files=files,
+                     headers={"X-Admin-Token": "s3cret"})
+    assert ok.status_code == 200
+
+
+def test_analyze_whole_and_zone(client):
+    r = client.post("/api/analyze", files={"image": ("s.jpg", jpg(), "image/jpeg")})
+    d = r.json()
+    assert r.status_code == 200 and d["size"] == [120, 100]
+    assert len(d["detections"]) == 2 and d["detections"][0]["s"] == "cola"
+    assert d["detections"][1]["s"] is None and d["roi"] is None
+    s = d["summary"]
+    assert s["num_products"] == 2 and s["num_known"] == 1 and s["num_unknown"] == 1
+    assert s["products"][0]["name"] == "Cola" and s["products"][0]["color"].startswith("#")
+    assert 0 <= s["unknown_share_pct"] <= 100
+    r2 = client.post("/api/analyze", files={"image": ("s.jpg", jpg(), "image/jpeg")},
+                     data={"roi": "[[5,5],[100,5],[100,90],[5,90]]"})
+    assert r2.json()["summary"]["fill_pct"] == 50.0
+    assert r2.json()["roi"] == [[5, 5], [100, 5], [100, 90], [5, 90]]
+    assert len(web.State.pipe.regions) == 1
+    bad = client.post("/api/analyze", files={"image": ("s.jpg", jpg(), "image/jpeg")},
+                      data={"roi": "nonsense"})
+    assert bad.status_code == 400
+
+
+def test_reindex_endpoint(client):
+    client.post("/api/products", data={"name": "Cola"}, files=[("files", ("a.jpg", jpg(), "image/jpeg"))])
+    r = client.post("/api/reindex")
+    assert r.status_code == 200 and r.json()["reindexed"][0]["sku_id"] == "cola"
+
+
+def test_normalized_zone_uses_resized_image_coordinates(client):
+    response = client.post(
+        "/api/analyze",
+        files={"image": ("s.jpg", jpg(4000, 2000), "image/jpeg")},
+        data={"roi": "[[0.1,0.2],[0.9,0.2],[0.9,0.8],[0.1,0.8]]", "roi_normalized": "true"},
+    )
+    assert response.status_code == 200
+    assert response.json()["size"] == [2000, 1000]
+    assert response.json()["roi"] == [[200, 200], [1800, 200], [1800, 800], [200, 800]]
+
+
+def test_reindex_keeps_old_vectors_if_reading_a_crop_fails(client):
+    response = client.post("/api/products", data={"name": "Cola"},
+                           files=[("files", ("a.jpg", jpg(), "image/jpeg"))])
+    assert response.status_code == 200
+    catalog = web.State.pipe.catalog
+    ids_before = {point.id for point in catalog._scroll()}
+    (web.State.images_dir / "cola" / "c001.jpg").write_bytes(b"invalid")
+
+    with TestClient(web.create_app(), raise_server_exceptions=False) as api:
+        assert api.post("/api/reindex").status_code == 500
+    assert {point.id for point in catalog._scroll()} == ids_before
+    assert client.get("/api/products").json()["products"][0]["name"] == "Cola"
+
+
+def test_teach_from_shelf(client):
+    files = {"image": ("s.jpg", jpg(200, 150), "image/jpeg")}
+    r = client.post("/api/teach", files=files, data={"boxes": "[[10,10,60,120],[70,10,120,120]]",
+                                                     "name": "Tarxun 1.5L", "brand": "CG"})
+    assert r.status_code == 200 and r.json()["added"] == 2 and r.json()["sku_id"] == "тархун_1_5l".replace("тархун", "tarxun")
+    ps = client.get("/api/products").json()["products"]
+    assert ps[0]["images"] == 2 and ps[0]["brand"] == "CG"
+    # mavjud mahsulotga qo'shish
+    r = client.post("/api/teach", files={"image": ("s.jpg", jpg(200, 150), "image/jpeg")},
+                    data={"boxes": "[[10,10,60,120]]", "sku_id": "tarxun_1_5l"})
+    assert r.status_code == 200 and client.get("/api/products").json()["products"][0]["images"] == 3
+    assert client.post("/api/teach", files={"image": ("s.jpg", jpg(), "image/jpeg")},
+                       data={"boxes": "[]", "name": "X"}).status_code == 400
+    assert client.post("/api/teach", files={"image": ("s.jpg", jpg(), "image/jpeg")},
+                       data={"boxes": "[[1,1,50,50]]", "sku_id": "yoq"}).status_code == 404
+
+
+def test_product_edit_and_images(client):
+    files = [("files", (f"{i}.jpg", jpg(), "image/jpeg")) for i in range(2)]
+    sku = client.post("/api/products", data={"name": "Tarxun", "brand": "CG"}, files=files).json()["sku_id"]
+    # nom/brendni o'zgartirish — sku_id o'zgarmaydi
+    r = client.patch(f"/api/products/{sku}", data={"name": "Тархун 1.5L", "brand": "Черноголовка"})
+    assert r.status_code == 200
+    p = client.get(f"/api/products/{sku}").json()
+    assert (p["name"], p["brand"], len(p["images"])) == ("Тархун 1.5L", "Черноголовка", 2)
+    # rasm qo'shish
+    r = client.post(f"/api/products/{sku}/images", files=[("files", ("n.jpg", jpg(), "image/jpeg"))])
+    assert r.json()["added"] == 1
+    imgs = client.get(f"/api/products/{sku}").json()["images"]
+    assert len(imgs) == 3 and len({i["name"] for i in imgs}) == 3
+    # bitta rasmni o'chirish -> qolganlardan qayta o'rganadi
+    r = client.delete(f"/api/products/{sku}/images/{imgs[0]['name']}")
+    assert r.status_code == 200 and r.json()["vectors"] > 0
+    assert len(client.get(f"/api/products/{sku}").json()["images"]) == 2
+    assert client.get("/api/products").json()["products"][0]["name"] == "Тархун 1.5L"
+    assert client.delete(f"/api/products/{sku}/images/../x.jpg").status_code == 404
+    assert client.patch("/api/products/nope", data={"name": "x"}).status_code == 404
+
+
+def test_catalog_delete_and_rename_refresh_cache():
+    cat = SkuCatalog(dim=4, path=":memory:", collection="cache_t")
+    cat.add_sku("a", "A", np.eye(4, dtype=np.float32)[:1])
+    cat._load_cache()
+    cat.update_sku("a", name="A2", brand="B")
+    assert cat._load_cache()[1][0]["name"] == "A2"
+    cat.delete_sku("a")
+    assert len(cat._load_cache()[0]) == 0          # o'chirilgan SKU keshda qolmaydi
+
+
+def test_public_server_without_password_blocks_admin(client):
+    web.State.public = True
+    try:
+        files = [("files", ("a.jpg", jpg(), "image/jpeg"))]
+        r = client.post("/api/products", data={"name": "A"}, files=files)
+        assert r.status_code == 403 and "RASTA_ADMIN_PASSWORD" in r.json()["detail"]
+        assert client.post("/api/reindex").status_code == 403
+        # tahlil admin emas — ishlayveradi
+        assert client.post("/api/analyze", files={"image": ("s.jpg", jpg(), "image/jpeg")}).status_code == 200
+    finally:
+        web.State.public = False
+
+
+def test_public_server_admin_open_flag(client, monkeypatch):
+    """RASTA_ADMIN_OPEN=1 — parolsiz ham tarmoqda admin ochiq (ataylab)."""
+    monkeypatch.delenv("RASTA_ADMIN_PASSWORD", raising=False)
+    monkeypatch.setenv("RASTA_ADMIN_OPEN", "1")
+    web.State.public = True
+    try:
+        files = [("files", ("a.jpg", jpg(), "image/jpeg"))]
+        assert client.post("/api/products", data={"name": "A"}, files=files).status_code == 200
+    finally:
+        web.State.public = False
+
+
+def test_duplicate_name_conflict(client):
+    files = [("files", ("a.jpg", jpg(), "image/jpeg"))]
+    assert client.post("/api/products", data={"name": "Cola 1L"}, files=files).status_code == 200
+    r = client.post("/api/products", data={"name": "cola-1l"}, files=files)   # bir xil slug
+    assert r.status_code == 409
+    assert client.get("/api/products").json()["products"][0]["images"] == 1
+    r = client.post("/api/teach", files={"image": ("s.jpg", jpg(200, 150), "image/jpeg")},
+                    data={"boxes": "[[10,10,60,120]]", "name": "Cola 1L"})
+    assert r.status_code == 409
+
+
+def test_huge_image_rejected(client):
+    buf = io.BytesIO()
+    Image.new("L", (9000, 6000)).save(buf, "PNG")          # kichik fayl, 54 Mpx
+    r = client.post("/api/analyze", files={"image": ("big.png", buf.getvalue(), "image/png")})
+    assert r.status_code == 413
+
+
+def test_failed_indexing_leaves_no_orphan_images(client, tmp_path):
+    def boom(*a, **kw):
+        raise RuntimeError("GPU xatosi")
+    web.State.pipe.add_product = boom
+    c = TestClient(client.app, raise_server_exceptions=False)
+    r = c.post("/api/products", data={"name": "X"}, files=[("files", ("a.jpg", jpg(), "image/jpeg"))])
+    assert r.status_code == 500
+    assert list(tmp_path.rglob("*.jpg")) == []
+
+
+def test_catalog_remembers_embedder(tmp_path):
+    p = str(tmp_path / "q")
+    cat = SkuCatalog(dim=4, path=p, collection="m", embedder="model=A")
+    cat.add_sku("a", "A", np.eye(4, dtype=np.float32)[:1])
+    cat._close()
+    same = SkuCatalog(dim=4, path=p, collection="m", embedder="model=A")
+    assert same.stale is None
+    same._close()
+    other = SkuCatalog(dim=4, path=p, collection="m", embedder="model=B")
+    assert other.stale == "model=A" and other.count() == 1     # ochiladi, lekin eskirgan
+    other.mark_current()
+    other._close()
+    assert SkuCatalog(dim=4, path=p, collection="m", embedder="model=B").stale is None

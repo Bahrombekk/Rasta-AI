@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rasta quti muharriri</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --ink: #1d2330; --muted: #6b7280; --line: #d9dde3;
+    --accent: #10b981; --accent-ink: #053b2b; --sel: #f59e0b; --ign: #64748b; --box: #22c55e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121418; --panel: #1b1e24; --ink: #e8eaee; --muted: #9aa1ac; --line: #2c313a;
+      --accent: #34d399; --accent-ink: #022c1f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+         background: var(--bg); color: var(--ink); height: 100vh; display: flex; flex-direction: column; }
+  header { display: flex; gap: 8px; align-items: center; padding: 8px 12px; background: var(--panel);
+           border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0 12px 0 0; }
+  button { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px;
+           background: var(--panel); color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .45; cursor: default; }
+  main { flex: 1; display: flex; min-height: 0; }
+  #stage { flex: 1; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+  canvas { max-width: 100%; max-height: 100%; cursor: crosshair; }
+  #empty { color: var(--muted); text-align: center; padding: 24px; max-width: 520px; }
+  aside { width: 300px; background: var(--panel); border-left: 1px solid var(--line); padding: 12px;
+          overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+  .help { color: var(--muted); font-size: 12.5px; }
+  .help b { color: var(--ink); }
+  .stat { font-variant-numeric: tabular-nums; }
+  #list { display: flex; flex-direction: column; gap: 2px; }
+  #list div { padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 12.5px;
+              white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #list div.cur { outline: 1px solid var(--sel); }
+  #list div.done::before { content: "✓ "; color: var(--accent); }
+  #list div.draft::before { content: "• "; color: var(--muted); }
+  @media (max-width: 760px) { main { flex-direction: column; } aside { width: auto; border-left: 0; border-top: 1px solid var(--line); max-height: 40vh; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Rasta — detektor GT muharriri</h1>
+  <button id="open" class="primary">Loyiha papkasini ochish</button>
+  <button id="prev" disabled>← Oldingi</button>
+  <button id="next" disabled>Keyingi →</button>
+  <button id="done" disabled title="D">Tayyor ✓ va keyingi</button>
+  <button id="undo" disabled title="Ctrl+Z">Bekor qilish</button>
+  <span id="msg" class="help"></span>
+</header>
+<main>
+  <div id="stage">
+    <div id="empty">
+      <b>RASTA</b> loyiha papkasini oching (Chrome yoki Edge). Muharrir
+      <code>data/gt_det/*.det.json</code> qoralamalarini o'qiydi va tuzatishlarni shu fayllarga
+      yozadi.<br><br>Qoralama yo'qmi? <code>python scripts/prelabel_detector.py --n 40</code>
+    </div>
+    <canvas id="cv" hidden></canvas>
+  </div>
+  <aside>
+    <div class="stat" id="stat"></div>
+    <div class="help">
+      <b>Qoida:</b> har bir ko'rinadigan mahsulot (facing) — bitta quti, butun mahsulot bo'yicha
+      (qopqoqdan tagigacha). Orqa fondagi / 50% dan ko'p yopilgan mahsulotlar, reklama, narx
+      yorlig'i — <b>ignore</b> (I).<br><br>
+      <b>Bo'sh joyda sudrash</b> — yangi quti · <b>bosish</b> — tanlash ·
+      <b>sudrash</b> — ko'chirish · <b>burchak/chet</b> — o'lchami ·
+      <b>Del</b> — o'chirish · <b>I</b> — ignore · <b>←/→</b> — rasm ·
+      <b>D</b> — tayyor · <b>Ctrl+Z</b> — bekor · <b>H</b> — qutilarni yashirish.<br>
+      Punktir — detektor ishonchi past (tekshiring).
+    </div>
+    <div id="list"></div>
+  </aside>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const cv = $("cv"), ctx = cv.getContext("2d");
+let root = null, files = [], cur = -1, img = null, rec = null, boxes = [], sel = -1;
+let hist = [], drag = null, hide = false, dirty = false;
+const LOW = 0.35;
+
+async function getDir(base, parts, create = false) {
+  let d = base;
+  for (const p of parts) d = await d.getDirectoryHandle(p, { create });
+  return d;
+}
+async function getFile(path) {
+  const parts = path.split("/");
+  const d = await getDir(root, parts.slice(0, -1));
+  return (await d.getFileHandle(parts.at(-1))).getFile();
+}
+
+$("open").onclick = async () => {
+  try { root = await window.showDirectoryPicker({ mode: "readwrite" }); }
+  catch (e) { return; }
+  // boshqa to'plam: box_editor.html?dir=gt_det_f1 -> data/gt_det_f1
+  const sub = new URLSearchParams(location.search).get("dir") || "gt_det";
+  let gt;
+  try { gt = await getDir(root, ["data", sub]); }
+  catch (e) { msg(`"${root.name}" papkasida data/${sub} yo'q — RASTA papkasining o'zini tanlang (ichida data, tools, src bor)`); return; }
+  files = [];
+  for await (const [name, h] of gt.entries())
+    if (name.endsWith(".det.json")) files.push({ name, h, status: JSON.parse(await (await h.getFile()).text()).status });
+  files.sort((a, b) => a.name.localeCompare(b.name));
+  if (!files.length) { msg(`data/${sub} bo'sh`); return; }
+  $("empty").hidden = true; cv.hidden = false;
+  ["prev", "next", "done", "undo"].forEach(id => $(id).disabled = false);
+  const first = files.findIndex(f => f.status !== "done");
+  await load(first < 0 ? 0 : first);
+};
+
+function msg(t) { $("msg").textContent = t; }
+
+async function load(i) {
+  if (i < 0 || i >= files.length) return;
+  if (dirty) await save();
+  cur = i;
+  rec = JSON.parse(await (await files[i].h.getFile()).text());
+  const sc = rec.scores || [];
+  boxes = rec.boxes.map((b, k) => ({ b: b.slice(), ign: false, s: sc[k] ?? 1 }))
+    .concat((rec.ignore || []).map(b => ({ b: b.slice(), ign: true, s: 1 })));
+  sel = -1; hist = []; dirty = false;
+  const bmp = await createImageBitmap(await getFile(rec.image));
+  img = bmp; cv.width = bmp.width; cv.height = bmp.height;
+  draw(); renderList();
+}
+
+async function save(status) {
+  if (status) rec.status = status;
+  rec.boxes = boxes.filter(x => !x.ign).map(x => x.b.map(v => Math.round(v * 10) / 10));
+  rec.scores = boxes.filter(x => !x.ign).map(x => x.s);
+  rec.ignore = boxes.filter(x => x.ign).map(x => x.b.map(v => Math.round(v * 10) / 10));
+  const w = await files[cur].h.createWritable();
+  await w.write(JSON.stringify(rec)); await w.close();
+  files[cur].status = rec.status; dirty = false;
+  msg(`Saqlandi: ${files[cur].name}`); renderList();
+}
+
+function renderList() {
+  const done = files.filter(f => f.status === "done").length;
+  const nb = boxes.filter(x => !x.ign).length, ni = boxes.length - nb;
+  $("stat").innerHTML = `<b>${cur + 1}/${files.length}</b> · tayyor: ${done}<br>Qutilar: ${nb} · ignore: ${ni}`;
+  $("list").innerHTML = "";
+  files.forEach((f, k) => {
+    const d = document.createElement("div");
+    d.textContent = f.name.replace(".det.json", "");
+    d.className = (f.status === "done" ? "done" : "draft") + (k === cur ? " cur" : "");
+    d.onclick = () => load(k);
+    $("list").append(d);
+  });
+}
+
+function scale() { return cv.width / cv.getBoundingClientRect().width; }
+
+function draw() {
+  ctx.drawImage(img, 0, 0);
+  if (hide) return;
+  const lw = Math.max(1.5, 2 * scale());
+  boxes.forEach((x, k) => {
+    const [x1, y1, x2, y2] = x.b;
+    ctx.lineWidth = k === sel ? lw * 1.6 : lw;
+    ctx.strokeStyle = k === sel ? "#f59e0b" : x.ign ? "#64748b" : "#22c55e";
+    ctx.setLineDash(x.s < LOW && !x.ign ? [6 * scale(), 4 * scale()] : []);
+    if (x.ign) { ctx.fillStyle = "rgba(100,116,139,.35)"; ctx.fillRect(x1, y1, x2 - x1, y2 - y1); }
+    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+  });
+  ctx.setLineDash([]);
+}
+
+function pt(e) {
+  const r = cv.getBoundingClientRect();
+  return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height];
+}
+
+// Qaysi quti / qaysi chet: smallest box containing the point wins (nested boxes)
+function hit(p) {
+  const m = 7 * scale();
+  let best = -1, area = Infinity, edge = null;
+  boxes.forEach((x, k) => {
+    const [x1, y1, x2, y2] = x.b;
+    if (p[0] < x1 - m || p[0] > x2 + m || p[1] < y1 - m || p[1] > y2 + m) return;
+    const a = (x2 - x1) * (y2 - y1);
+    if (a < area) {
+      area = a; best = k;
+      edge = { l: Math.abs(p[0] - x1) < m, r: Math.abs(p[0] - x2) < m,
+               t: Math.abs(p[1] - y1) < m, b: Math.abs(p[1] - y2) < m };
+    }
+  });
+  return { k: best, edge };
+}
+
+function snap() { hist.push(JSON.stringify(boxes)); if (hist.length > 100) hist.shift(); }
+
+cv.addEventListener("mousedown", e => {
+  const p = pt(e), h = hit(p);
+  snap();
+  if (h.k >= 0) {
+    sel = h.k;
+    const ed = h.edge, resize = ed.l || ed.r || ed.t || ed.b;
+    drag = { mode: resize ? "resize" : "move", edge: ed, p0: p, b0: boxes[sel].b.slice() };
+  } else {
+    boxes.push({ b: [p[0], p[1], p[0], p[1]], ign: false, s: 1 });
+    sel = boxes.length - 1;
+    drag = { mode: "new", p0: p };
+  }
+  draw();
+});
+window.addEventListener("mousemove", e => {
+  if (!drag) return;
+  const p = pt(e), x = boxes[sel];
+  if (drag.mode === "new") {
+    x.b = [Math.min(drag.p0[0], p[0]), Math.min(drag.p0[1], p[1]), Math.max(drag.p0[0], p[0]), Math.max(drag.p0[1], p[1])];
+  } else if (drag.mode === "move") {
+    const dx = p[0] - drag.p0[0], dy = p[1] - drag.p0[1], b = drag.b0;
+    x.b = [b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy];
+  } else {
+    const b = drag.b0.slice(), ed = drag.edge;
+    if (ed.l) b[0] = p[0]; if (ed.r) b[2] = p[0]; if (ed.t) b[1] = p[1]; if (ed.b) b[3] = p[1];
+    x.b = [Math.min(b[0], b[2]), Math.min(b[1], b[3]), Math.max(b[0], b[2]), Math.max(b[1], b[3])];
+  }
+  x.b = [Math.max(0, x.b[0]), Math.max(0, x.b[1]), Math.min(cv.width, x.b[2]), Math.min(cv.height, x.b[3])];
+  draw();
+});
+window.addEventListener("mouseup", () => {
+  if (!drag) return;
+  const x = boxes[sel];
+  if (drag.mode === "new" && (x.b[2] - x.b[0] < 4 || x.b[3] - x.b[1] < 4)) {
+    boxes.pop(); hist.pop(); sel = -1;               // shunchaki bosish — tanlovni olib tashlash
+  } else {
+    x.s = 1; dirty = true;                           // qo'lda tekshirilgan
+  }
+  drag = null; draw(); renderList();
+});
+cv.addEventListener("mousemove", e => {
+  if (drag) return;
+  const h = hit(pt(e));
+  if (h.k < 0) { cv.style.cursor = "crosshair"; return; }
+  const ed = h.edge;
+  cv.style.cursor = (ed.l && ed.t) || (ed.r && ed.b) ? "nwse-resize" : (ed.r && ed.t) || (ed.l && ed.b) ? "nesw-resize"
+    : ed.l || ed.r ? "ew-resize" : ed.t || ed.b ? "ns-resize" : "move";
+});
+
+function undo() { if (hist.length) { boxes = JSON.parse(hist.pop()); sel = -1; dirty = true; draw(); renderList(); } }
+
+window.addEventListener("keydown", async e => {
+  if (cur < 0) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); await save(); return; }
+  if ((e.key === "Delete" || e.key === "Backspace") && sel >= 0) {
+    snap(); boxes.splice(sel, 1); sel = -1; dirty = true; draw(); renderList();
+  } else if (e.key.toLowerCase() === "i" && sel >= 0) {
+    snap(); boxes[sel].ign = !boxes[sel].ign; dirty = true; draw(); renderList();
+  } else if (e.key.toLowerCase() === "h") { hide = !hide; draw(); }
+  else if (e.key.toLowerCase() === "d") { await markDone(); }
+  else if (e.key === "ArrowRight") { await load(cur + 1); }
+  else if (e.key === "ArrowLeft") { await load(cur - 1); }
+});
+
+async function markDone() { await save("done"); if (cur + 1 < files.length) await load(cur + 1); }
+$("prev").onclick = () => load(cur - 1);
+$("next").onclick = () => load(cur + 1);
+$("done").onclick = markDone;
+$("undo").onclick = undo;
+window.addEventListener("resize", () => img && draw());
+window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+</script>
+</body>
+</html>

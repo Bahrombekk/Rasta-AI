@@ -1,0 +1,37 @@
+# Rasta AI veb-ilovasi
+#   docker compose up -d --build      -> http://localhost:8090   (admin: http://localhost:8090/admin)
+#   docker compose logs -f rasta      -> loglar
+#   docker compose down               -> to'xtatish (katalog volume'da saqlanib qoladi)
+#
+# Admin paroli: .env faylida  RASTA_ADMIN_PASSWORD=parol  (yoki shu yerda environment ostida)
+services:
+  rasta:
+    build: .
+    image: rasta-ai:latest
+    container_name: rasta-ai
+    restart: unless-stopped
+    ports:
+      - "${RASTA_BIND:-127.0.0.1}:${RASTA_PORT:-8090}:8000"
+    environment:
+      - RASTA_ADMIN_PASSWORD=${RASTA_ADMIN_PASSWORD:-}
+    volumes:
+      - rasta-catalog:/app/data/qdrant
+      - rasta-images:/app/data/catalog_images
+      - ./models:/app/models:ro
+    gpus: all
+
+  # Demo uchun tashqi manzil (Cloudflare quick tunnel): manzil loglarda —
+  #   docker compose logs tunnel | grep trycloudflare
+  # Har qayta ishga tushganda manzil o'zgaradi. O'chirish: docker compose stop tunnel
+  tunnel:
+    profiles: ["demo"]
+    image: cloudflare/cloudflared:2025.8.1
+    container_name: rasta-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://rasta:8000
+    depends_on:
+      - rasta
+
+volumes:
+  rasta-catalog:
+  rasta-images:

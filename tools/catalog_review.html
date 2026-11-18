@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SKU katalog tekshiruvi</title>
+<style>
+  :root { --bg:#f4f5f7; --panel:#fff; --ink:#1d2330; --muted:#6b7280; --line:#d9dde3;
+          --ok:#10b981; --bad:#dc2626; --mix:#f59e0b; --accent:#2563eb; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+          --bg:#121418; --panel:#1b1e24; --ink:#e8eaee; --muted:#9aa1ac; --line:#2c313a; --accent:#60a5fa; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--ink); }
+  header { position:sticky; top:0; z-index:5; display:flex; gap:8px; align-items:center; flex-wrap:wrap;
+           padding:8px 12px; background:var(--panel); border-bottom:1px solid var(--line); }
+  header h1 { font-size:15px; margin:0 10px 0 0; }
+  button, label.btn, select { font:inherit; padding:5px 10px; border:1px solid var(--line); border-radius:6px;
+           background:var(--panel); color:var(--ink); cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  input[type=file] { display:none; }
+  #stat { color:var(--muted); margin-left:auto; }
+  .help { color:var(--muted); font-size:12.5px; padding:6px 12px; }
+  .row { display:grid; grid-template-columns:70px minmax(0,1fr) 300px; gap:10px; align-items:center;
+         padding:8px 12px; border-bottom:1px solid var(--line); background:var(--panel); }
+  .row.ok { box-shadow: inset 4px 0 var(--ok); } .row.bad { box-shadow: inset 4px 0 var(--bad); opacity:.6; }
+  .row.mix { box-shadow: inset 4px 0 var(--mix); }
+  .meta { font-size:12px; color:var(--muted); } .meta b { color:var(--ink); font-size:13px; }
+  .strip { max-width:100%; height:auto; display:block; border-radius:4px; }
+  .form { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+  .form input { font:inherit; padding:4px 6px; border:1px solid var(--line); border-radius:4px;
+                background:transparent; color:var(--ink); min-width:0; }
+  .form input.name { grid-column: 1 / 3; }
+  .acts { grid-column: 1 / 3; display:flex; gap:4px; }
+  .acts button { padding:2px 8px; font-size:12.5px; }
+  .acts button.on.ok { background:var(--ok); color:#fff; } .acts button.on.bad { background:var(--bad); color:#fff; }
+  .acts button.on.mix { background:var(--mix); color:#000; }
+  @media (max-width: 860px) { .row { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>SKU katalog tekshiruvi</h1>
+  <select id="filter">
+    <option value="all">Hammasi</option><option value="todo">Belgilanmagan</option>
+    <option value="ok">SKU berilgan</option><option value="bad">Yaroqsiz/aralash</option>
+  </select>
+  <label class="btn" for="load">labels.json yuklash</label>
+  <input id="load" type="file" accept=".json">
+  <button id="save" class="primary">Yorliqlarni saqlash (labels.json)</button>
+  <span id="stat"></span>
+</header>
+<div class="help">
+  Har qator — bitta klaster (turli do'konlardan namunalar). Barcha namunalar <b>bir xil mahsulot</b> bo'lsa —
+  nom (va brend) yozing; SKU ID avtomatik hosil bo'ladi. Bir mahsulot bir nechta qatorda chiqsa — bir xil nom
+  yozing, ular birlashtiriladi. <b>Yaroqsiz</b> — mahsulot emas (narx yorlig'i, quti, devor);
+  <b>Aralash</b> — turli mahsulotlar. Tab/Enter — keyingi maydon. Ish brauzerda avtomatik saqlanadi.
+</div>
+<datalist id="names"></datalist><datalist id="brands"></datalist>
+<div id="list"></div>
+<script src="clusters.js"></script>
+<script>
+(() => {
+  const C = window.CLUSTERS || [];
+  const KEY = "rasta-catalog-labels";
+  let L = {};
+  try { L = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) {}
+  const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(L)); } catch (e) {} };
+  const slug = s => s.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "")
+                    .replace(/[^a-z0-9а-яё]+/gi, "_").replace(/^_|_$/g, "").slice(0, 48);
+  const list = document.getElementById("list");
+
+  function datalists() {
+    const names = new Set(), brands = new Set();
+    Object.values(L).forEach(v => { if (v.name) names.add(v.name); if (v.brand) brands.add(v.brand); });
+    document.getElementById("names").innerHTML = [...names].sort().map(n => `<option value="${n.replace(/"/g, "&quot;")}">`).join("");
+    document.getElementById("brands").innerHTML = [...brands].sort().map(n => `<option value="${n.replace(/"/g, "&quot;")}">`).join("");
+  }
+  function stat() {
+    const v = Object.values(L);
+    document.getElementById("stat").textContent =
+      `${C.length} klaster · SKU: ${v.filter(x => x.status === "ok").length} · ` +
+      `yaroqsiz/aralash: ${v.filter(x => x.status === "bad" || x.status === "mix").length} · ` +
+      `noyob SKU: ${new Set(v.filter(x => x.status === "ok").map(x => x.sku_id)).size}`;
+  }
+  function render() {
+    const f = document.getElementById("filter").value;
+    list.innerHTML = "";
+    C.forEach((c, k) => {
+      const lab = L[c.cid] || {};
+      const st = lab.status || "";
+      if (f === "todo" && st) return;
+      if (f === "ok" && st !== "ok") return;
+      if (f === "bad" && !(st === "bad" || st === "mix")) return;
+      const row = document.createElement("div"); row.className = "row " + st;
+      row.innerHTML = `
+        <div class="meta"><b>#${k + 1}</b><br>c${c.cid}<br>${c.size} crop<br>${c.n_outlets} do'kon<br>z=${c.tightness.toFixed(2)}</div>
+        <img class="strip" loading="lazy" src="${c.strip}" alt="klaster ${c.cid}">
+        <div class="form">
+          <input class="name" list="names" placeholder="Mahsulot nomi (masalan: Coca-Cola 1.5L)" value="${(lab.name || "").replace(/"/g, "&quot;")}">
+          <input class="brand" list="brands" placeholder="Brend" value="${(lab.brand || "").replace(/"/g, "&quot;")}">
+          <input class="sku" placeholder="SKU ID (avto)" value="${lab.sku_id || ""}">
+          <div class="acts">
+            <button class="ok ${st === "ok" ? "on" : ""}">✓ SKU</button>
+            <button class="mix ${st === "mix" ? "on" : ""}">Aralash</button>
+            <button class="bad ${st === "bad" ? "on" : ""}">Yaroqsiz</button>
+            <button class="clr">Tozalash</button>
+          </div>
+        </div>`;
+      const [name, brand, sku] = row.querySelectorAll("input");
+      const set = status => {
+        const nm = name.value.trim();
+        if (status === "ok" && !nm) { name.focus(); return; }
+        L[c.cid] = { cid: c.cid, status, name: nm, brand: brand.value.trim(),
+                     sku_id: sku.value.trim() || (nm ? slug(nm) : ""), size: c.size, n_outlets: c.n_outlets };
+        if (!status) delete L[c.cid];
+        persist(); datalists(); stat();
+        row.className = "row " + (status || "");
+        row.querySelectorAll(".acts button").forEach(b => b.classList.toggle("on", b.classList.contains(status)));
+        if (L[c.cid]) sku.value = L[c.cid].sku_id;
+      };
+      name.addEventListener("change", () => {
+        if (!sku.value || (L[c.cid] && sku.value === L[c.cid].sku_id)) sku.value = slug(name.value);
+        // shu nom avval ishlatilgan bo'lsa — brend va SKU ID'ni olish
+        const prev = Object.values(L).find(v => v.name === name.value.trim() && v.cid !== c.cid);
+        if (prev) { if (!brand.value) brand.value = prev.brand; sku.value = prev.sku_id; }
+        if (name.value.trim()) set("ok");
+      });
+      [brand, sku].forEach(i => i.addEventListener("change", () => { if (L[c.cid]) set(L[c.cid].status); }));
+      row.querySelector(".ok").onclick = () => set("ok");
+      row.querySelector(".mix").onclick = () => set("mix");
+      row.querySelector(".bad").onclick = () => set("bad");
+      row.querySelector(".clr").onclick = () => { name.value = brand.value = sku.value = ""; set(""); };
+      list.append(row);
+    });
+    stat();
+  }
+  document.getElementById("filter").onchange = render;
+  document.getElementById("save").onclick = () => {
+    const blob = new Blob([JSON.stringify({ labels: Object.values(L) }, null, 1)], { type: "application/json" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "labels.json"; a.click();
+  };
+  document.getElementById("load").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    const d = JSON.parse(await f.text());
+    (d.labels || []).forEach(v => { L[v.cid] = v; }); persist(); datalists(); render();
+  };
+  datalists(); render();
+})();
+</script>
+</body>
+</html>

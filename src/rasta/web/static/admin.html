@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rasta — mahsulotlar</title>
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/common.js"></script>
+</head>
+<body>
+<header class="topbar"><div class="in">
+  <a class="logo" href="/"><span class="mark" data-icon="logo"></span><span class="t">Rasta</span></a>
+  <nav class="tabs"><a href="/">Tahlil</a><a href="/admin" class="on">Mahsulotlar</a></nav>
+  <span class="sp"></span>
+  <button class="iconbtn" id="theme" title="Mavzu"></button>
+</div></header>
+
+<main class="page">
+  <div class="page-head">
+    <div>
+      <h1>Mahsulotlar katalogi</h1>
+      <p id="sub">Tahlilda tanib olinadigan mahsulotlar.</p>
+    </div>
+    <div class="row" style="display:flex;gap:10px;flex-wrap:wrap">
+      <div class="search"><span data-icon="search"></span><input class="input" id="q" placeholder="Qidirish: nom yoki brend"></div>
+      <button class="btn primary" id="addBtn" data-icon="plus">Mahsulot qo'shish</button>
+    </div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+  <section class="card card-pad" id="empty" hidden style="text-align:center;padding:48px 20px">
+    <div class="drop compact" style="border:0;background:none;cursor:default;padding:0">
+      <div class="ico" data-icon="box"></div>
+    </div>
+    <h3 style="margin:6px 0 4px">Katalog hali bo'sh</h3>
+    <p style="color:var(--muted);margin:0 0 18px">Birinchi mahsulotni qo'shing — uning rasmi tahlilda tanib olinadi.</p>
+    <button class="btn primary" id="addBtn2" data-icon="plus">Mahsulot qo'shish</button>
+  </section>
+</main>
+
+<!-- Qo'shish paneli -->
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" hidden aria-label="Mahsulot qo'shish">
+  <div class="hd"><h2 id="dTitle">Yangi mahsulot</h2><button class="iconbtn" id="close" title="Yopish"></button></div>
+  <form class="bd" id="form">
+    <label class="field"><span>Nomi</span>
+      <input class="input" id="name" required placeholder="Masalan: Coca-Cola 1.5L" autocomplete="off"></label>
+    <label class="field"><span>Brend</span>
+      <input class="input" id="brand" placeholder="Masalan: Coca-Cola" list="brands" autocomplete="off"></label>
+    <datalist id="brands"></datalist>
+    <div class="field" id="curWrap" hidden><span id="curLbl">Mavjud rasmlar</span>
+      <div class="thumbs" id="cur"></div>
+    </div>
+    <div class="field"><span id="newLbl">Rasmlar</span>
+      <label class="drop compact" id="drop" for="files">
+        <div class="ico" data-icon="upload"></div>
+        <div style="font-weight:600;font-size:14px">Rasmlarni tanlang yoki tashlang</div>
+        <div style="color:var(--muted);font-size:13px;margin-top:2px">Bir nechta rasm tanlash mumkin</div>
+      </label>
+      <input id="files" type="file" accept="image/*" multiple>
+      <div class="thumbs" id="thumbs"></div>
+    </div>
+    <div class="tip" id="tip"><b>Eng aniq usul:</b> Tahlil sahifasida javon rasmini tahlil qiling va mahsulot ramkalarini
+      bosib, "Katalogga qo'shish" orqali o'rgating — javondan olingan namuna internet rasmidan ancha ishonchli.
+      Har bir ta'm/hajmni alohida mahsulot qilib qo'shing (masalan "Черноголовка Тархун 1.5L").</div>
+    <div class="err" id="err"></div>
+  </form>
+  <div class="ft">
+    <button class="btn ghost" id="cancel" type="button">Bekor qilish</button>
+    <button class="btn primary" id="save" type="submit" form="form">Saqlash</button>
+  </div>
+</aside>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  let all = [], files = [];
+  const token = () => { try { return sessionStorage.getItem("rasta-admin") || ""; } catch (e) { return ""; } };
+
+  async function api(url, opts = {}, retry = true) {
+    opts.headers = Object.assign({}, opts.headers, token() ? { "X-Admin-Token": token() } : {});
+    const r = await fetch(url, opts);
+    if (r.status === 401 && retry) {
+      const pw = prompt("Admin paroli:");
+      if (pw === null) throw new Error("Parol kiritilmadi");
+      try { sessionStorage.setItem("rasta-admin", pw); } catch (e) {}
+      return api(url, opts, false);
+    }
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || "Xatolik yuz berdi");
+    return d;
+  }
+
+  // ---------- ro'yxat ----------
+  function render() {
+    const q = $("q").value.trim().toLowerCase();
+    const ps = all.filter(p => !q || (p.name + " " + (p.brand || "")).toLowerCase().includes(q));
+    const brands = new Set(all.map(p => p.brand).filter(Boolean));
+    $("sub").textContent = all.length ? `${all.length} ta mahsulot · ${brands.size} ta brend` : "Tahlilda tanib olinadigan mahsulotlar.";
+    $("empty").hidden = all.length > 0;
+    $("grid").innerHTML = ps.map(p => `
+      <article class="card pcard" data-sku="${esc(p.sku_id)}" tabindex="0" style="cursor:pointer" title="Tahrirlash">
+        <div class="img">${p.thumb ? `<img src="${p.thumb}" alt="" loading="lazy">` : icon("image")}</div>
+        <div class="body">
+          <div class="nm" title="${esc(p.name)}">${esc(p.name)}</div>
+          <div class="meta"><span class="chip">${esc(p.brand || "Brendsiz")}</span><span class="cnt">${p.images} ta rasm</span></div>
+        </div>
+        <button class="iconbtn del" data-sku="${esc(p.sku_id)}" data-name="${esc(p.name)}" title="O'chirish">${icon("trash")}</button>
+      </article>`).join("") || (all.length ? `<p style="color:var(--muted)">"${esc(q)}" bo'yicha hech narsa topilmadi.</p>` : "");
+    $("brands").innerHTML = [...brands].sort().map(b => `<option value="${esc(b)}">`).join("");
+    $("grid").querySelectorAll(".pcard").forEach(c => {
+      c.onclick = () => openEdit(c.dataset.sku);
+      c.onkeydown = e => { if (e.key === "Enter") openEdit(c.dataset.sku); };
+    });
+    $("grid").querySelectorAll(".del").forEach(b => b.onclick = async ev => {
+      ev.stopPropagation();
+      if (!confirm(`"${b.dataset.name}" katalogdan o'chirilsinmi?`)) return;
+      try { await api("/api/products/" + encodeURIComponent(b.dataset.sku), { method: "DELETE" }); toast("O'chirildi"); load(); }
+      catch (e) { alert(e.message); }
+    });
+  }
+  async function load() {
+    try { all = (await api("/api/products")).products; render(); }
+    catch (e) { $("grid").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+  }
+  $("q").oninput = render;
+
+  // ---------- qo'shish paneli ----------
+  let editing = null;              // tahrirlanayotgan mahsulot (null — yangi)
+  function show() { $("scrim").hidden = false; $("drawer").hidden = false; setTimeout(() => $("name").focus(), 50); }
+  function open() {
+    editing = null; $("dTitle").textContent = "Yangi mahsulot"; $("newLbl").textContent = "Rasmlar";
+    $("curWrap").hidden = true; $("tip").hidden = false; show();
+  }
+  function close() { editing = null; $("scrim").hidden = true; $("drawer").hidden = true; $("form").reset(); setFiles([]); $("err").textContent = ""; }
+  $("addBtn").onclick = open; $("addBtn2").onclick = open;
+
+  // ---------- tahrirlash ----------
+  function renderCur() {
+    const ims = editing.images;
+    $("curLbl").textContent = `Mavjud rasmlar · ${ims.length} ta`;
+    $("cur").innerHTML = ims.map(im => `<div title="${im.shelf ? "Javondan o'rgatilgan" : "Katalog rasmi"}"><img src="${im.url}" alt="" loading="lazy">`
+      + (ims.length > 1 ? `<button type="button" data-n="${esc(im.name)}" title="Rasmni o'chirish">✕</button>` : "") + `</div>`).join("");
+    $("cur").querySelectorAll("button").forEach(b => b.onclick = async () => {
+      if (!confirm("Bu rasm o'chirilsinmi? Mahsulot qolgan rasmlardan qayta o'rganiladi.")) return;
+      b.disabled = true;
+      try {
+        await api(`/api/products/${encodeURIComponent(editing.sku_id)}/images/${encodeURIComponent(b.dataset.n)}`, { method: "DELETE" });
+        editing.images = editing.images.filter(im => im.name !== b.dataset.n); renderCur(); toast("Rasm o'chirildi"); load();
+      } catch (e) { $("err").textContent = e.message; b.disabled = false; }
+    });
+  }
+  async function openEdit(sku) {
+    try { editing = await api("/api/products/" + encodeURIComponent(sku)); }
+    catch (e) { alert(e.message); return; }
+    $("dTitle").textContent = "Mahsulotni tahrirlash"; $("newLbl").textContent = "Rasm qo'shish";
+    $("name").value = editing.name; $("brand").value = editing.brand || "";
+    $("curWrap").hidden = false; $("tip").hidden = true; renderCur(); show();
+  }
+  $("close").innerHTML = icon("x"); $("close").onclick = close; $("cancel").onclick = close; $("scrim").onclick = close;
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("drawer").hidden) close(); });
+
+  function setFiles(list) {
+    files = list;
+    $("thumbs").innerHTML = files.map((f, i) => `<div><img src="${URL.createObjectURL(f)}" alt=""><button type="button" data-i="${i}" title="Olib tashlash">✕</button></div>`).join("");
+    $("thumbs").querySelectorAll("button").forEach(b => b.onclick = () => setFiles(files.filter((_, i) => i !== +b.dataset.i)));
+  }
+  const addFiles = list => setFiles(files.concat([...list].filter(f => f.type.startsWith("image/"))));
+  $("files").onchange = e => { addFiles(e.target.files); e.target.value = ""; };
+  const drop = $("drop");
+  ["dragover", "dragenter"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach(t => drop.addEventListener(t, () => drop.classList.remove("over")));
+  drop.addEventListener("drop", e => { e.preventDefault(); addFiles(e.dataTransfer.files); });
+
+  $("form").onsubmit = async e => {
+    e.preventDefault();
+    if (!$("name").value.trim()) { $("err").textContent = "Mahsulot nomini kiriting."; return; }
+    if (!editing && !files.length) { $("err").textContent = "Kamida bitta rasm qo'shing."; return; }
+    if (editing) return saveEdit();
+    const fd = new FormData();
+    fd.append("name", $("name").value); fd.append("brand", $("brand").value);
+    files.forEach(f => fd.append("files", f));
+    const b = $("save"); b.disabled = true; b.innerHTML = '<span class="spin"></span> Saqlanmoqda…';
+    $("err").textContent = "";
+    try {
+      await api("/api/products", { method: "POST", body: fd });
+      const nm = $("name").value.trim(); close(); toast(`"${nm}" qo'shildi`); load();
+    } catch (er) { $("err").textContent = er.message; }
+    finally { b.disabled = false; b.textContent = "Saqlash"; }
+  };
+
+  async function saveEdit() {
+    const b = $("save"); b.disabled = true; b.innerHTML = '<span class="spin"></span> Saqlanmoqda…';
+    $("err").textContent = "";
+    const sku = encodeURIComponent(editing.sku_id), nm = $("name").value.trim(), br = $("brand").value.trim();
+    try {
+      if (nm !== editing.name || br !== (editing.brand || "")) {
+        const fd = new FormData(); fd.append("name", nm); fd.append("brand", br);
+        await api(`/api/products/${sku}`, { method: "PATCH", body: fd });
+      }
+      if (files.length) {
+        const fd = new FormData(); files.forEach(f => fd.append("files", f));
+        await api(`/api/products/${sku}/images`, { method: "POST", body: fd });
+      }
+      const n = files.length; close(); toast(n ? `"${nm}" ga ${n} ta rasm qo'shildi` : "Saqlandi"); load();
+    } catch (er) { $("err").textContent = er.message; }
+    finally { b.disabled = false; b.textContent = "Saqlash"; }
+  }
+
+  load();
+})();
+</script>
+</body>
+</html>

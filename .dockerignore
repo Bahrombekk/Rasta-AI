@@ -1,0 +1,21 @@
+# Faqat kerakli fayllar image'ga kiradi (kod, config, detektor og'irligi)
+.venv/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.claude/
+.git/
+.env
+.env.*
+backup/
+pytest-of-*/
+torchinductor_*/
+
+data/
+outputs/
+models/
+*.pt
+
+Rasta_AI_hisobot_v2.html
+BENCHMARK.md
+tests/

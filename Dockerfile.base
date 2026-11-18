@@ -1,0 +1,37 @@
+# Rasta AI — bazaviy image: Python + PyTorch (CUDA 12.8) + kutubxonalar + embedding modellari.
+# Og'ir va kam o'zgaradi — bir marta quriladi:
+#
+#   docker build -f Dockerfile.base -t rasta-ai-base:1 .
+#
+# Docker Desktop qurish keshini avtomatik tozalaydi; alohida image esa saqlanib qoladi,
+# shuning uchun asosiy image (Dockerfile) qayta qurilganda PyTorch qayta yuklanmaydi.
+FROM python:3.10-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/opt/hf \
+    HF_HUB_DISABLE_TELEMETRY=1 \
+    YOLO_CONFIG_DIR=/tmp/ultralytics
+
+# OpenCV uchun tizim kutubxonalari
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# PyTorch (CUDA 12.8). Eski pip PyTorch indeksidagi paket nomlarini noto'g'ri
+# solishtiradi — avval yangilanadi; oddiy bog'liqliklar PyPI'dan olinadi.
+RUN pip install --upgrade pip \
+ && pip install torch==2.11.0 torchvision==0.26.0 \
+      --index-url https://download.pytorch.org/whl/cu128 \
+      --extra-index-url https://pypi.org/simple
+
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+# Embedding modellari (image ichida — konteyner internetsiz ishlaydi)
+RUN python -c "from huggingface_hub import snapshot_download as d; \
+[d(r, allow_patterns=['*.json', '*.safetensors', '*.model', '*.txt']) \
+ for r in ('facebook/dinov2-base', 'google/siglip2-base-patch16-224')]"

@@ -1,0 +1,169 @@
+# Rasta AI — konfiguratsiya
+# Barcha modullar shu fayldan sozlamalarni oladi.
+# Istalgan qiymatni CLI orqali vaqtincha o'zgartirish mumkin:
+#   python scripts/analyze.py --image x.jpg --set recognition.sim_threshold=0.75
+
+device: auto            # auto | cuda | cpu
+
+detector:
+  # SKU-110K'da o'qitilgan class-agnostic detektor (zich javon uchun).
+  # Manba: HF chistopat/sku110k-yolo11-object-detector (yolo11-s, imgsz 640).
+  backend: ensemble     # ensemble (SKU-110K + COCO butilka) | yolo | simple
+  weights: models/weights/sku110k-yolo11-s640.pt
+  conf: 0.20            # ishonch chegarasi (javon zich, past qiymat yaxshi)
+  iou: 0.55             # NMS IoU
+  imgsz: 1280           # zich javon uchun katta o'lcham
+  max_det: 600          # bir rasmda maksimal obyekt
+  agnostic_nms: true    # class-agnostic
+  # Bitta mahsulot uchun "butun + qism" qutilari (ikki marta sanash) tozalanadi:
+  suppress_nested: true
+  contain_thr: 0.8      # kichik quti shu ulushda kattasining ichida bo'lsa -> o'chiriladi
+  # Agent ilovasining chap yuqori burchakdagi yashil logotipi har rasmda "mahsulot"
+  # bo'lib chiqadi — olib tashlanadi (burchak + kvadrat + yashil rang; mahsulotlarga tegmaydi)
+  drop_app_logo: true
+  # O'qitishsiz kuchaytirish (asosiy SKU-110K detektori uchun): bir nechta o'tish
+  # (masshtablar, aks, bo'laklar) natijasi WBF bilan birlashtiriladi. Sekinroq
+  # (o'tishlar soniga mutanosib). Ta'sirini o'lchash: scripts/eval_detector.py
+  tta:
+    enabled: false
+    scales: [640, 1280]   # sku110k-yolo11-s 640 da o'qitilgan: ikkala masshtab
+    flip: true
+    tiles: 0              # 2 -> 2×2 bo'lak (mayda mahsulotli katta rasmlar uchun)
+    tile_overlap: 0.25
+    tile_imgsz: 640
+    fuse_iou: 0.55
+    min_votes: 1
+  # backend: ensemble -> SKU-110K + COCO "bottle/cup" detektori birlashtiriladi.
+  # Shaffof PET shishalar (muzlatgichlar) SKU-110K'da ko'pincha bo'laklarga bo'linadi;
+  # COCO detektori ularni butunligicha topadi.
+  bottle:
+    weights: models/weights/yolo11m-coco.pt
+    classes: [39, 41]   # COCO: 39 bottle, 41 cup
+    conf: 0.25
+    imgsz: 1280
+    merge_iou: 0.5
+    contain_thr: 0.7
+
+embedder:
+  # Benchmark natijalari (BENCHMARK.md): eng kuchlisi — ANSAMBL
+  #   DINOv2  — sof vizual (tekstura, naqsh, shakl)
+  #   SigLIP2 — vizual + yorliqdagi matn/logotipni "o'qiydi"
+  # RP2K real javon crop'larida (48 000 so'rov): closed-set 0.699 (eski DINOv2) -> 0.840.
+  # Tezroq/yengilroq: model: google/siglip2-base-patch16-224 (bitta model, resize_mode: stretch)
+  # Maksimal aniqlik (+2-3 punkt, ~5x og`irroq): "facebook/dinov2-base + google/siglip2-so400m-patch14-224"
+  model: "facebook/dinov2-base + google/siglip2-base-patch16-224"
+  weights: [0.4, 0.6]   # ansambl og'irliklari (har model uchun)
+  batch_size: 64
+  image_size: 224       # DINOv2 uchun; SigLIP o'z o'lchamini oladi
+  # Har model uchun alohida (yoki bitta qiymat hammasiga):
+  #   crop    = markaziy kesish (DINOv2 uchun eng yaxshi chiqdi)
+  #   stretch = kvadratga cho'zish (SigLIP uchun eng yaxshi)
+  #   pad     = nisbatni saqlab to'ldirish
+  resize_mode: [crop, stretch]
+  pooling: [cls+mean, cls]   # DINOv2: CLS + patch o'rtachasi
+  tta_flip: false
+
+catalog:
+  # Qdrant lokal (fayl) rejimi — docker shart emas.
+  # Server uchun: url: "http://localhost:6333" qo'ying. Test uchun: path: ":memory:"
+  # DIQQAT: embedder.model o'zgarsa katalogni qayta indekslash kerak (vektor o'lchami/fazosi boshqa).
+  path: data/qdrant
+  collection: rasta_skus_v2
+  distance: cosine
+
+recognition:
+  # Gibrid ball: fused = (1-wc-ws)*cos(embedding) + wc*rang + ws*shakl
+  # Open-set qaror: fused >= sim_threshold VA margin >= min_margin VA rang >= color_min
+  # Chegaralar domen va katalogga bog'liq — o'z ma'lumotingizda kalibrlang:
+  #   python scripts/eval_shelf.py --calibrate --gt data/gt/<rasm>.gt.json
+  sim_threshold: 0.76   # real javon crop'lari bilan qurilgan SKU (RP2K: 0.74–0.77, javon GT: 0.77)
+  sim_threshold_packshot: 0.65  # faqat packshot'dan qurilgan SKU (Grocery: 0.64–0.66)
+  min_margin: 0.01
+  # Top-2 bir brenddan (ta'mlar bir xil yorliqda: Черноголовка Тархун/Дюшес/Буратино...)
+  # bo'lsa SKU uchun kattaroq margin, aks holda faqat brend darajasida tanish.
+  # Sinov (4 muzlatgich fotosi, 136 crop): SKU xatolari 20 -> 8, brend tanish o'zgarmadi.
+  brand_margin: 0.04
+  top_k: 5
+  w_color: 0.25         # rang (HSV, fazoviy gistogramma) og'irligi
+  w_shape: 0.05         # tomonlar nisbati (0.33L banka vs 1.5L shisha)
+  shape_sigma: 0.25
+  color_min: 0.35       # rang veto'si: rangi butunlay boshqa bo'lsa -> noma'lum
+  # Packshot SKU uchun qattiqroq rang talabi: bir xil shakldagi boshqa brendni
+  # ajratadi (sinov: Pepsi bankasi Coca-Cola packshot'iga rang 0.44–0.53, haqiqiy
+  # Coca-Cola >= 0.92). Grocery benchmarkiga ta'siri ~0.1 punkt.
+  color_min_packshot: 0.6
+  candidates: 48        # qayta reyting uchun olinadigan nuqtalar soni
+  # Boshqa mahsulotlar bazasi (foto arxividan 2 657 ta real mahsulot klasteri):
+  # so'rov bazadagi mahsulotga katalogdagidan neg_margin dan ko'proq o'xshasa -> noma'lum.
+  # Kichik katalogda Lipton/Sprite/Pepsi'ning "Черноголовка" deb tanilishini to'xtatadi.
+  # Packshot SKU uchun yumshoqroq: internet rasmi javondagi shishaga real crop'dan
+  # doim kamroq o'xshaydi (sinov: haqiqiy moslik farqi 0.06–0.17, xatolar 0.08–0.26).
+  negatives: models/negatives/aptash_v1.npz
+  neg_margin: 0.03
+  neg_margin_packshot: 0.12
+  neg_exclude: 0.85
+
+onboarding:
+  # Yangi SKU uchun faqat 1 ta rasm (packshot) bo'lsa, undan realistik variantlar
+  # (yorug'lik, oq balans, blur, kesish, JPEG) yaratiladi. 2+ real crop bo'lsa —
+  # augmentatsiya qilinmaydi (aks holda boshqa qorong'i/xira obyektlar ham "tanilib"
+  # qoladi: test'da 29 ta noto'g'ri tanish -> 0).
+  augment: 16
+  augment_if_fewer: 2
+  # Oq/bir xil fonli rasm (internet packshot) mahsulot chegarasigacha kesiladi,
+  # "packshot" deb belgilanadi va augmentatsiya qilinadi (rasmlar soniga qaramay).
+  packshot_crop: true
+
+context:
+  # Noma'lum mahsulot chap va o'ng qo'shnisi bir xil SKU bo'lsa va shu SKU uning
+  # nomzodlari orasida chegaraga yaqin bo'lsa -> o'sha SKU (tanilganlar o'zgarmaydi).
+  enabled: true
+  relax: 0.06
+
+clustering:
+  # Noma'lumlarni HDBSCAN bilan guruhlash (operator bitta guruhga bitta nom beradi).
+  enabled: true
+  min_cluster_size: 2
+  color_weight: 0.6     # embedding + rang + shakl birlashtirilgan xususiyat
+  shape_weight: 0.3
+
+roi:
+  # Poligon (zona) bo'yicha tahlil: tools/roi_editor.html da chiziladi.
+  target_long: 1280     # zona shu o'lchamgacha kattalashtiriladi (mayda mahsulotlar uchun)
+  max_scale: 3.0
+  min_inside: 0.5       # quti maydonining shu ulushi zona ichida bo'lsa — hisobga olinadi
+  # 4 nuqtali zona homografiya bilan "old tomondan" ko'rinishga keltiriladi (perspektiva
+  # to'g'rilash). Qiyshaytirilgan real javonda SKU aniqligi o'rtacha 86.5% -> 92.4%
+  # (scripts/benchmark_rectify.py). 4 dan ko'p nuqtali poligonlarda o'chiq.
+  rectify: true
+
+shelf:
+  # Javon qatorlarini klasterlash. bottom = pastki chiziq (javonga turgan mahsulot),
+  # center = y-markaz (osma mahsulotlar uchun).
+  anchor: bottom
+  row_tolerance: 0.6    # o'rtacha bbox balandligiga nisbatan
+  drop_background_rows: true   # orqa fondagi qisman ko'ringan "qator"larni olib tashlash
+
+oos:
+  # Bo'sh joy = qator kengligi − band segmentlar
+  min_gap_ratio: 0.8    # qo'shni mahsulot o'rtacha kengligiga nisbatan
+  edge_margin: 0.02     # qator chekkasidagi bo'sh joyni e'tiborsiz qoldirish
+  use_shelf_extent: true  # qator boshi/oxiridagi bo'sh kataklarni ham topish
+  # Javon bo'linmasi filtri: bo'shliq qatorlarning shu ulushida bir xil
+  # x-pozitsiyada takrorlansa => tuzilma (bo'linma), OOS emas.
+  divider_row_frac: 0.6
+  # Rasm bo'yicha tekshiruv: bo'shliqdagi qirralar zichligi mahsulotlarnikining
+  # shu ulushidan yuqori bo'lsa -> "shubhali" (detektor o'tkazib yuborgan bo'lishi mumkin)
+  verify: true
+  suspect_ratio: 0.55
+  # Butunlay bo'sh javonlar: javon chetlari (narx relslari) Hough chiziqlari bilan
+  # topiladi, mahsulotsiz va tekis zonalar OOS deb belgilanadi. Faqat frontal javon
+  # rasmlarida ishlaydi: mahsulotlarning shu ulushi javon chetida turishi shart
+  # (yo'lak/aralash sahnalarda o'z-o'zidan o'chadi).
+  empty_shelves: true
+  shelf_support_frac: 0.85
+  # Sahna filtri: mahsulotlarning shu ulushidan kami javon chetida tursa (yo'lak,
+  # ombor, qiya kadr) — qator-asosli OOS "shubhali" deb belgilanadi (KPI'ga kirmaydi).
+  # O'lchov (samples/): frontal javonlar 0.90–0.95, yo'lak/ombor 0.52–0.69.
+  require_frontal: true
+  frontal_min_support: 0.8

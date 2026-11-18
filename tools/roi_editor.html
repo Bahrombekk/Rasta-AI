@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rasta zona muharriri</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --ink: #1d2330; --muted: #6b7280; --line: #d9dde3;
+    --accent: #10b981; --accent-ink: #053b2b; --danger: #dc2626; --sel: #f59e0b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121418; --panel: #1b1e24; --ink: #e8eaee; --muted: #9aa1ac; --line: #2c313a;
+      --accent: #34d399; --accent-ink: #022c1f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+         background: var(--bg); color: var(--ink); height: 100vh; display: flex; flex-direction: column; }
+  header { display: flex; gap: 8px; align-items: center; padding: 8px 12px; background: var(--panel);
+           border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0 12px 0 0; }
+  button, label.btn { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px;
+           background: var(--panel); color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .45; cursor: default; }
+  input[type=file] { display: none; }
+  main { flex: 1; display: flex; min-height: 0; }
+  #stage { flex: 1; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+  canvas { max-width: 100%; max-height: 100%; cursor: crosshair; }
+  #empty { color: var(--muted); text-align: center; padding: 24px; }
+  aside { width: 300px; background: var(--panel); border-left: 1px solid var(--line); padding: 12px;
+          overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+  .reg { border: 1px solid var(--line); border-radius: 8px; padding: 8px; display: flex; gap: 6px; align-items: center; }
+  .reg.sel { border-color: var(--sel); }
+  .reg input { flex: 1; font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px;
+               background: transparent; color: var(--ink); min-width: 0; }
+  .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  .help { color: var(--muted); font-size: 12.5px; }
+  .help b { color: var(--ink); }
+  .nav { display: flex; gap: 6px; align-items: center; }
+  .nav span { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (max-width: 760px) { main { flex-direction: column; } aside { width: auto; border-left: 0; border-top: 1px solid var(--line); max-height: 40vh; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Rasta — zona (poligon) muharriri</h1>
+  <label class="btn" for="files">Rasm(lar)ni ochish</label>
+  <input id="files" type="file" accept="image/*" multiple>
+  <label class="btn" for="jsonIn">JSON yuklash</label>
+  <input id="jsonIn" type="file" accept=".json,application/json">
+  <button id="undo" title="Ctrl+Z">Oxirgi nuqtani bekor qilish</button>
+  <button id="saveOne" class="primary">Shu rasm JSON</button>
+  <button id="saveAll">Hammasi (batch) JSON</button>
+</header>
+<main>
+  <div id="stage">
+    <div id="empty">Rasm(lar)ni oching yoki shu yerga tashlang.<br>
+      Kerakli muzlatgich/javon atrofini bosib-bosib poligon chizing.</div>
+    <canvas id="cv" hidden></canvas>
+  </div>
+  <aside>
+    <div class="nav">
+      <button id="prev">◀</button><button id="next">▶</button>
+      <span id="fname">—</span>
+    </div>
+    <div class="help">
+      <b>Bosish</b> — nuqta qo'shish. <b>Birinchi nuqtani bosish</b> yoki <b>Enter</b> — poligonni yopish.<br>
+      <b>Nuqtani sudrash</b> — tuzatish. <b>Esc</b> — chizishni bekor qilish.<br>
+      <b>Zonani bosish</b> — tanlash, <b>Delete</b> — o'chirish. <b>←/→</b> — rasmlar.<br>
+      Koordinatalar asl rasm pikselida saqlanadi.
+    </div>
+    <div id="regions"></div>
+  </aside>
+</main>
+<script>
+(() => {
+  const COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#84cc16"];
+  const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+  const items = [];            // {name, img, regions:[{name, points:[[x,y]]}]}
+  let cur = -1, draft = [], sel = -1, drag = null, hover = null;
+
+  const store = {
+    get(k) { try { return JSON.parse(localStorage.getItem("rasta-roi:" + k) || "null"); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem("rasta-roi:" + k, JSON.stringify(v)); } catch (e) {} }
+  };
+  const item = () => items[cur];
+
+  function loadFiles(files) {
+    const list = [...files].filter(f => f.type.startsWith("image/"));
+    list.forEach(f => {
+      const url = URL.createObjectURL(f), img = new Image();
+      const it = { name: f.name, img, regions: store.get(f.name) || [] };
+      items.push(it);
+      img.onload = () => { if (cur === -1) show(items.indexOf(it)); else render(); };
+      img.src = url;
+    });
+  }
+  function show(i) {
+    if (i < 0 || i >= items.length) return;
+    cur = i; draft = []; sel = -1;
+    const im = item().img;
+    cv.width = im.naturalWidth; cv.height = im.naturalHeight; cv.hidden = false;
+    document.getElementById("empty").hidden = true;
+    document.getElementById("fname").textContent = `${i + 1}/${items.length} · ${item().name}`;
+    render(); list();
+  }
+  function scale() { return cv.width / cv.getBoundingClientRect().width; }
+  function pos(e) { const r = cv.getBoundingClientRect(), s = scale();
+    return [Math.round((e.clientX - r.left) * s), Math.round((e.clientY - r.top) * s)]; }
+  function near(a, b, px) { return Math.hypot(a[0] - b[0], a[1] - b[1]) < px * scale(); }
+  function inside(p, poly) { let c = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [xi, yi] = poly[i], [xj, yj] = poly[j];
+      if ((yi > p[1]) !== (yj > p[1]) && p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) c = !c; }
+    return c; }
+
+  function render() {
+    if (!item()) return;
+    const s = scale(), lw = Math.max(2, 2 * s), r = Math.max(4, 5 * s);
+    ctx.drawImage(item().img, 0, 0);
+    item().regions.forEach((rg, k) => {
+      const col = COLORS[k % COLORS.length];
+      ctx.beginPath(); rg.points.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath();
+      ctx.fillStyle = col + (k === sel ? "55" : "30"); ctx.fill();
+      ctx.lineWidth = k === sel ? lw * 1.6 : lw; ctx.strokeStyle = k === sel ? "#f59e0b" : col; ctx.stroke();
+      rg.points.forEach(([x, y]) => { ctx.fillStyle = col; ctx.fillRect(x - r / 2, y - r / 2, r, r); });
+      const [x0, y0] = rg.points.reduce((a, p) => [Math.min(a[0], p[0]), Math.min(a[1], p[1])], [1e9, 1e9]);
+      ctx.font = `${Math.round(14 * s)}px system-ui`; const tw = ctx.measureText(rg.name).width;
+      ctx.fillStyle = col; ctx.fillRect(x0, y0 - 18 * s, tw + 8 * s, 18 * s);
+      ctx.fillStyle = "#000"; ctx.fillText(rg.name, x0 + 4 * s, y0 - 4 * s);
+    });
+    if (draft.length) {
+      ctx.beginPath(); draft.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+      if (hover) ctx.lineTo(...hover);
+      ctx.lineWidth = lw; ctx.strokeStyle = "#f59e0b"; ctx.setLineDash([8 * s, 5 * s]); ctx.stroke(); ctx.setLineDash([]);
+      draft.forEach(([x, y], i) => { ctx.fillStyle = i ? "#f59e0b" : "#ffffff";
+        ctx.beginPath(); ctx.arc(x, y, i ? r / 1.5 : r, 0, 7); ctx.fill(); ctx.strokeStyle = "#f59e0b"; ctx.stroke(); });
+    }
+  }
+  function persist() { if (item()) store.set(item().name, item().regions); }
+  function closeDraft() {
+    if (draft.length < 3) return;
+    const n = item().regions.length + 1;
+    item().regions.push({ name: `Zona ${n}`, points: draft });
+    draft = []; sel = item().regions.length - 1; persist(); render(); list();
+    const inputs = document.querySelectorAll("#regions input"); inputs[inputs.length - 1]?.select();
+  }
+  function list() {
+    const box = document.getElementById("regions"); box.innerHTML = "";
+    if (!item()) return;
+    item().regions.forEach((rg, k) => {
+      const d = document.createElement("div"); d.className = "reg" + (k === sel ? " sel" : "");
+      const sw = document.createElement("span"); sw.className = "sw"; sw.style.background = COLORS[k % COLORS.length];
+      const inp = document.createElement("input"); inp.value = rg.name;
+      inp.oninput = () => { rg.name = inp.value || `Zona ${k + 1}`; persist(); render(); };
+      inp.onfocus = () => { sel = k; render(); };
+      const del = document.createElement("button"); del.textContent = "✕"; del.title = "O'chirish";
+      del.onclick = () => { item().regions.splice(k, 1); sel = -1; persist(); render(); list(); };
+      d.append(sw, inp, del); box.append(d);
+    });
+  }
+  function download(name, obj) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(obj, null, 1)], { type: "application/json" }));
+    a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+  const pack = it => ({ image: it.name, image_size: [it.img.naturalWidth, it.img.naturalHeight],
+                        regions: it.regions.map(r => ({ name: r.name, points: r.points })) });
+
+  cv.addEventListener("mousedown", e => {
+    if (!item()) return; const p = pos(e);
+    if (!draft.length) {                       // mavjud nuqtani sudrash yoki zonani tanlash
+      for (let k = item().regions.length - 1; k >= 0; k--) {
+        const i = item().regions[k].points.findIndex(q => near(q, p, 9));
+        if (i >= 0) { drag = [k, i]; sel = k; render(); list(); return; }
+      }
+      const k = item().regions.map(r => inside(p, r.points)).lastIndexOf(true);
+      if (k >= 0 && e.detail === 1 && !e.shiftKey) { sel = k; render(); list(); return; }
+    }
+    if (draft.length >= 3 && near(draft[0], p, 12)) { closeDraft(); return; }
+    sel = -1; draft.push(p); render();
+  });
+  cv.addEventListener("mousemove", e => {
+    if (!item()) return; const p = pos(e);
+    if (drag) { item().regions[drag[0]].points[drag[1]] = p; render(); return; }
+    if (draft.length) { hover = p; render(); }
+  });
+  window.addEventListener("mouseup", () => { if (drag) { drag = null; persist(); } });
+  cv.addEventListener("dblclick", e => { e.preventDefault(); if (draft.length >= 3) closeDraft(); });
+  window.addEventListener("keydown", e => {
+    if (e.target.tagName === "INPUT") { if (e.key === "Enter") e.target.blur(); return; }
+    if (e.key === "Enter") closeDraft();
+    else if (e.key === "Escape") { draft = []; hover = null; render(); }
+    else if ((e.key === "z" && (e.ctrlKey || e.metaKey)) || e.key === "Backspace") { draft.pop(); render(); }
+    else if (e.key === "Delete" && sel >= 0) { item().regions.splice(sel, 1); sel = -1; persist(); render(); list(); }
+    else if (e.key === "ArrowRight") show(cur + 1);
+    else if (e.key === "ArrowLeft") show(cur - 1);
+  });
+  window.addEventListener("resize", render);
+  document.getElementById("undo").onclick = () => { draft.pop(); render(); };
+  document.getElementById("prev").onclick = () => show(cur - 1);
+  document.getElementById("next").onclick = () => show(cur + 1);
+  document.getElementById("files").onchange = e => loadFiles(e.target.files);
+  document.getElementById("saveOne").onclick = () => {
+    if (!item()) return; download(item().name.replace(/\.[^.]+$/, "") + ".roi.json", pack(item())); };
+  document.getElementById("saveAll").onclick = () => {
+    if (!items.length) return;
+    download("zonalar.roi.json", { items: items.filter(i => i.regions.length).map(pack) }); };
+  document.getElementById("jsonIn").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    const data = JSON.parse(await f.text());
+    (data.items || [data]).forEach(d => {
+      const name = String(d.image || "").split(/[\\/]/).pop();
+      const it = items.find(i => i.name === name);
+      if (it) { it.regions = d.regions; store.set(name, d.regions); } else store.set(name, d.regions);
+    });
+    render(); list();
+  };
+  const stage = document.getElementById("stage");
+  stage.addEventListener("dragover", e => e.preventDefault());
+  stage.addEventListener("drop", e => { e.preventDefault(); loadFiles(e.dataTransfer.files); });
+})();
+</script>
+</body>
+</html>
