@@ -9,6 +9,8 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-SRC = Path(__file__).resolve().parents[1] / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+ROOT = Path(__file__).resolve().parents[1]
+for directory in ("src", "backend", "ai"):
+    source = str(ROOT / directory)
+    if source not in sys.path:
+        sys.path.insert(0, source)

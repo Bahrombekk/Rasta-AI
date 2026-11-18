@@ -4,16 +4,28 @@ import io
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+import pytest
 
 from test_accounts import HEADERS, INITIAL, login
 from test_web import FakePipe, jpg, web
 from rasta.config import Config
-from rasta.web.accounts import Accounts
-from rasta.web.workspaces import Workspaces
+from rasta_backend.accounts import Accounts
+from rasta_backend.database import Database
+from rasta_backend.workspaces import Workspaces
 
 
-def test_organization_boundaries_and_shelf_review(tmp_path, monkeypatch):
-    accounts = Accounts(tmp_path / "accounts.sqlite3")
+@pytest.fixture(params=["sqlite", "postgres"])
+def workspace_database(request, tmp_path):
+    target = request.getfixturevalue("postgres_url") if request.param == "postgres" else tmp_path / "accounts.sqlite3"
+    database = Database(target)
+    try:
+        yield database
+    finally:
+        database.close()
+
+
+def test_organization_boundaries_and_shelf_review(tmp_path, monkeypatch, workspace_database):
+    accounts = Accounts(workspace_database)
     accounts.create("root-admin", INITIAL, "super_admin")
     accounts.create("legacy-admin", INITIAL)
     spaces = Workspaces(accounts)

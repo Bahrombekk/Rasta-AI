@@ -17,7 +17,7 @@ from PIL import Image  # noqa: E402
 from rasta.catalog import SkuCatalog  # noqa: E402
 from rasta.kpi import compute_kpi  # noqa: E402
 from rasta.types import AnalysisResult, Box, Detection, Gap, Match  # noqa: E402
-from rasta.web import app as web  # noqa: E402
+from rasta_backend import app as web  # noqa: E402
 
 
 class FakePipe:
@@ -66,10 +66,13 @@ def client(tmp_path, monkeypatch):
 
 
 def test_pages_served(client):
-    assert "Javon tahlili" in client.get("/").text
-    assert client.get("/static/common.js").status_code == 200
-    assert "Mahsulot qo'shish" in client.get("/admin").text
-    assert client.get("/static/app.css").status_code == 200
+    if not (web.STATIC / "index.html").is_file():
+        pytest.skip("React distribution is built in the frontend job")
+    for route in ("/", "/admin", "/login", "/dashboard", "/field"):
+        page = client.get(route)
+        assert page.status_code == 200
+        assert '<div id="root"></div>' in page.text
+    assert client.get("/static/login-shelf.webp").status_code == 200
 
 
 def test_catalog_metadata_survives_photo_changes_and_reindex(client):

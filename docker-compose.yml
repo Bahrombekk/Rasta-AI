@@ -12,12 +12,13 @@ services:
   backend:
     build:
       context: .
-      dockerfile: Dockerfile.backend
+      dockerfile: backend/Dockerfile
     restart: unless-stopped
     environment:
       RASTA_AI_URL: http://ai:8012
       RASTA_AI_TOKEN: "${RASTA_AI_TOKEN:?Set RASTA_AI_TOKEN in .env}"
       RASTA_ACCOUNTS_DB: /app/data/accounts/users.sqlite3
+      RASTA_DATABASE_URL: "${RASTA_DATABASE_URL:-}"
       RASTA_WORKSPACES: "1"
       RASTA_SECURE_COOKIES: "${RASTA_SECURE_COOKIES:-0}"
       FORWARDED_ALLOW_IPS: "*"
@@ -38,7 +39,9 @@ services:
     networks: [web, inference]
 
   ai:
-    build: .
+    build:
+      context: .
+      dockerfile: ai/Dockerfile
     restart: unless-stopped
     environment:
       RASTA_AI_TOKEN: "${RASTA_AI_TOKEN:?Set RASTA_AI_TOKEN in .env}"

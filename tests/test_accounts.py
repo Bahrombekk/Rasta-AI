@@ -5,8 +5,8 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from rasta.web.accounts import Accounts, SESSION_COOKIE
-from rasta.web.app import create_app
+from rasta_backend.accounts import Accounts, SESSION_COOKIE
+from rasta_backend.app import create_app
 
 HEADERS = {"X-Rasta-Request": "1"}
 INITIAL = "initial-test-password"

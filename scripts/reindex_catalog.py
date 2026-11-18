@@ -31,7 +31,7 @@ def main():
     info = pipe.catalog.sku_info()
     print(f"[+] Katalog: {len(info)} SKU")
     # Veb-ilova bilan bir xil qoida: "c*" — javon crop'lari (augmentatsiyasiz), qolgani packshot
-    from rasta.web import app as web
+    from rasta_backend import app as web
     web.State.images_dir = images_dir
     skipped = 0
     for sku, v in sorted(info.items()):

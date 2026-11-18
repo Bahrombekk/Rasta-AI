@@ -1,0 +1,31 @@
+services:
+  backend:
+    environment:
+      RASTA_DATABASE_URL: "${RASTA_DATABASE_URL:?Set the PostgreSQL connection URL in the local env file}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [web, inference, storage]
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: rasta
+      POSTGRES_USER: rasta
+      POSTGRES_PASSWORD: "${RASTA_POSTGRES_PASSWORD:?Set a PostgreSQL password in the local env file}"
+    volumes:
+      - rasta-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rasta -d rasta"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    networks: [storage]
+
+networks:
+  storage:
+    internal: true
+
+volumes:
+  rasta-postgres:

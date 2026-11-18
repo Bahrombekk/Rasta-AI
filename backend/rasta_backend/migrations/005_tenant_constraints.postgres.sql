@@ -1,0 +1,12 @@
+ALTER TABLE stores ADD CONSTRAINT stores_org_key UNIQUE (org_id, id);
+ALTER TABLE members ADD CONSTRAINT members_org_user_key UNIQUE (org_id, user_id);
+ALTER TABLE field_visits ADD CONSTRAINT visits_org_key UNIQUE (org_id, id);
+ALTER TABLE field_visits ADD CONSTRAINT visits_store_tenant FOREIGN KEY (org_id, store_id) REFERENCES stores (org_id, id);
+ALTER TABLE field_visits ADD CONSTRAINT visits_agent_tenant FOREIGN KEY (org_id, agent_id) REFERENCES members (org_id, user_id);
+ALTER TABLE field_tasks ADD CONSTRAINT tasks_store_tenant FOREIGN KEY (org_id, store_id) REFERENCES stores (org_id, id);
+ALTER TABLE field_tasks ADD CONSTRAINT tasks_agent_tenant FOREIGN KEY (org_id, agent_id) REFERENCES members (org_id, user_id);
+ALTER TABLE field_tasks ADD CONSTRAINT tasks_visit_tenant FOREIGN KEY (org_id, visit_id) REFERENCES field_visits (org_id, id);
+ALTER TABLE store_assignments ADD CONSTRAINT assignment_store_tenant FOREIGN KEY (org_id, store_id) REFERENCES stores (org_id, id);
+ALTER TABLE store_assignments ADD CONSTRAINT assignment_agent_tenant FOREIGN KEY (org_id, agent_id) REFERENCES members (org_id, user_id);
+ALTER TABLE reports ADD CONSTRAINT reports_store_tenant FOREIGN KEY (org_id, store_id) REFERENCES stores (org_id, id);
+ALTER TABLE reports ADD CONSTRAINT reports_visit_tenant FOREIGN KEY (org_id, visit_id) REFERENCES field_visits (org_id, id);

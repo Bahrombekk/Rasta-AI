@@ -40,7 +40,8 @@ Rasm → YOLO detektor (SKU-110K) → ichma-ich qutilarni tozalash
 | `calibrate.py` | τ/margin kalibrlash, AUROC, halol (holdout) baholash |
 | `roi.py` | Poligon zona: kesish, kattalashtirish, maska, koordinatalarni qaytarish |
 | `kpi.py` | Share-of-Shelf, facings, brend ulushi, OOS xulosasi |
-| `web/` | Veb-ilova (FastAPI): admin katalog + tahlil sahifasi |
+| `backend/rasta_backend/` | FastAPI, hisoblar, korxonalar, katalog va audit API |
+| `ai/rasta_ai/` | GPU detektori va embeddinglar uchun ichki API |
 | `pipeline.py` | Barchasini bog'laydi |
 
 ## O'rnatish
@@ -50,6 +51,8 @@ py -3.10 -m venv .venv
 .venv\Scripts\activate
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 pip install -r requirements.txt
+# Veb-backend yoki testlar uchun:
+pip install -r backend/requirements.txt
 # yoki aynan sinalgan versiyalar:
 pip install -r requirements.lock.txt --extra-index-url https://download.pytorch.org/whl/cu128
 ```
@@ -62,7 +65,7 @@ HuggingFace'dan avtomatik yuklanadi (~1.2 GB).
 ```bash
 python scripts/demo.py                    # offline sintetik demo
 python scripts/onboard_and_analyze.py     # real javon: few-shot onboarding + tahlil
-python -m pytest tests -q                 # 58 ta test
+python -m pytest tests -q
 ```
 
 ## Veb-ilova
@@ -74,7 +77,7 @@ python -m pytest tests -q                 # 58 ta test
 - **Hisobotlar** (`/reports`) holat, do‘kon va Toshkent vaqti bo‘yicha sana oralig‘ida filtrlanadi. Korxona admini yuborgan xodim bo‘yicha ham qidiradi va 10 000 tagacha yuborilgan auditni CSV qilib yuklaydi. Bosh paneldagi holat, do‘kon va xodim havolalari shu filtrlarga olib boradi.
 - **Hisob** (`/account`) joriy parolni almashtiradi va eski sessiyalarni yakunlaydi.
 
-Docker uchta xizmatni ishga tushiradi. **Frontend** Nginx orqali saytni beradi. **Backend** FastAPI orqali hisoblar, katalog, javon geometriyasi va KPI’larni boshqaradi. **AI** xizmati YOLO deteksiyasi va embeddinglarni hisoblaydi. Brauzer faqat frontend portiga ulanadi.
+**Frontend** React va Vite yordamida yig‘iladi, Nginx orqali uzatiladi. **Backend** FastAPI orqali hisoblar, katalog, javon geometriyasi va KPI’larni boshqaradi. **AI** xizmati ichki tarmoqda YOLO deteksiyasi va embeddinglarni hisoblaydi. Brauzer frontend portiga ulanadi. PostgreSQL hisoblar, korxonalar, auditlar va tashriflar uchun ishlaydi. Mahsulot vektorlari Qdrant’da saqlanadi.
 
 Sessiya korxona katalogi, SKU rasmlari va auditlar doirasini belgilaydi. Oldingi Docker admin hisoblari birinchi ishga tushishda mavjud katalog bilan **Asosiy korxona**ga biriktiriladi. Mahsulot rejasi va joylashtirish chegaralari [PRODUCT.md](PRODUCT.md) faylida.
 
@@ -87,7 +90,7 @@ Katalogda mahsulotlar nom, SKU, brend va shtrix-kod bo‘yicha qidiriladi. Natij
 3. NVIDIA GPU mavjud bo‘lsa Docker GPU integratsiyasini yoqing. CPU’da ishlatish uchun Compose faylidagi `gpus: all` qatorini olib tashlang.
 
 ```bash
-docker build -f Dockerfile.base -t rasta-ai-base:1 .
+docker build -f ai/Dockerfile.base -t rasta-ai-base:1 .
 docker compose up -d --build
 docker compose exec backend python scripts/manage_users.py superadmin --role super_admin
 ```
@@ -97,7 +100,8 @@ Brauzerda **http://127.0.0.1:8090/login** ni oching. Super admin **Korxonalar** 
 - `rasta-catalog`, `rasta-images` va `rasta-accounts` volume’larini birga zaxiralang. `docker compose down -v` ularni o‘chiradi.
 - Xizmat loglari uchun `docker compose logs -f frontend backend ai` ishlating. Tayyorlik holati `/api/health` da ko‘rinadi.
 - Domen bilan chiqarishda frontendni HTTPS reverse proxy ortiga joylashtiring va `RASTA_SECURE_COOKIES=1` belgilang.
-- Docker’siz lokal dasturlash uchun `python scripts/serve.py` ham ishlaydi. Korxonali rejim uchun `RASTA_ACCOUNTS_DB` va `RASTA_WORKSPACES=1` belgilang va `python scripts/manage_users.py superadmin` orqali birinchi hisobni yarating.
+- Lokal frontend uchun Node.js 22.12+ bilan `npm --prefix frontend ci` va `npm --prefix frontend run dev` ni bajaring. Vite API so‘rovlarini odatda `127.0.0.1:8000` ga uzatadi. FastAPI’ni `python scripts/serve.py --api-only` orqali oching. Bitta portda ishlatish uchun frontendni `npm --prefix frontend run build` bilan yig‘ing va `python scripts/serve.py` ni ishga tushiring.
+- Korxonali SQLite rejimi uchun `RASTA_ACCOUNTS_DB` va `RASTA_WORKSPACES=1` belgilang. PostgreSQL bilan ishga tushirish va mavjud bazani ko‘chirish tartibi [SERVER.md](SERVER.md#postgresql) faylida.
 
 ## Real ishlatish (buyruq qatori)
 
@@ -219,7 +223,11 @@ python scripts/benchmark_oos.py --n 40
 ```
 config.yaml            # barcha sozlamalar
 BENCHMARK.md           # sinov natijalari
-src/rasta/             # yadro kutubxona
+frontend/src/pages/    # React sahifalari va umumiy navigatsiya
+frontend/src/controllers/ # murakkab sahifalardagi mavjud amallar va canvas integratsiyasi
+backend/rasta_backend/ # FastAPI, biznes qoidalari va SQL migratsiyalari
+ai/rasta_ai/           # ichki AI inference servisi
+src/rasta/             # servislar va CLI ishlatadigan javon tahlili kutubxonasi
 scripts/               # CLI, onboarding, baholash va benchmarklar
 tests/                 # unit testlar (og'ir modellarsiz)
 data/gt/               # qo'lda belgilangan ground-truth

@@ -19,3 +19,5 @@ models/
 Rasta_AI_hisobot_v2.html
 BENCHMARK.md
 tests/
+frontend/node_modules/
+frontend/dist/

@@ -1,136 +1,14 @@
 <!doctype html>
 <html lang="uz">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="Javon rasmlaridan mahsulotlar, javondagi ulush va bo‘sh joylarni tahlil qiling.">
-<title>Javon tahlili · Rasta AI</title>
-<link rel="stylesheet" href="/static/app.css?v=workspace1">
-<link rel="stylesheet" href="/static/workspace.css?v=workspace1">
-<script src="/static/common.js?v=workspace1" defer></script>
-<script src="/static/analysis.js?v=workspace1" defer></script>
-</head>
-<body>
-<header data-shell data-page="analysis"></header>
-
-<main class="page workspace-page" data-view="analysis">
-  <div class="work-heading">
-    <div><h1>Javon tahlili</h1><p>Javon rasmini yuklang, natijani tekshiring va hisobotni yuboring.</p></div>
-    <div class="page-actions"><a class="btn" href="/field" id="visitLink" hidden data-icon="visit">Tashrif</a>
-      <a class="btn" href="/reports" id="historyLink" hidden data-icon="report">Hisobotlar</a></div>
-  </div>
-  <section class="card card-pad" id="visitPrompt" hidden>
-    <h2 class="section-title">Do‘konda tashrifni boshlang</h2>
-    <p id="visitPromptText">Biriktirilgan do‘konni tanlagach, shu tashrifga fotoaudit qo‘sha olasiz.</p>
-    <a href="/field" class="btn primary" data-icon="visit">Tashriflar</a>
-  </section>
-  <ol class="analysis-flow" aria-label="Javon tahlili bosqichlari">
-    <li aria-current="step" data-phase="photo"><span class="flow-icon" data-icon="image"></span>Rasm tanlash</li>
-    <li data-phase="result"><span class="flow-icon" data-icon="scan"></span>Natijani ko‘rish</li>
-    <li data-phase="submit" id="submitPhase" hidden><span class="flow-icon" data-icon="report"></span>Auditni yuborish</li>
-  </ol>
-  <section class="analysis-entry" id="start">
-    <div class="card upload-panel">
-      <div class="panel-heading"><span class="metric-icon" data-icon="upload"></span><div><h2>Javon rasmi</h2><p>Javon yoki muzlatgichning bitta suratini tanlang.</p></div></div>
-      <div class="drop" id="drop">
-        <div class="ico" data-icon="upload"></div>
-        <strong class="drop-title"><span class="drop-desktop">Rasmni shu yerga tashlang</span><span class="drop-touch">Rasmni yuklang</span></strong>
-        <p>JPG, PNG yoki WebP · 20 MB gacha</p>
-        <div class="upload-actions">
-          <button class="btn primary lg" id="choose" type="button" data-icon="image">Fayl tanlash</button>
-          <button class="btn lg camera-action" id="cameraBtn" type="button" data-icon="camera">Suratga olish</button>
-        </div>
-      </div>
-    </div>
-    <aside class="card capture-guide">
-      <img src="/static/login-shelf.webp" alt="" width="300" height="150">
-      <div><h2>Suratga olish bo‘yicha tavsiyalar</h2><ul><li>Javonni old tomondan suratga oling.</li><li>Yorug‘lik aksini kamaytiring.</li><li>Bir nechta javon bo‘lsa, keraklisini zona bilan belgilang.</li></ul></div>
-    </aside>
-  </section>
-  <div class="err" id="fileErr" role="alert" hidden></div>
-  <input id="file" type="file" accept="image/jpeg,image/png,image/webp">
-  <input id="cameraFile" type="file" accept="image/jpeg,image/png,image/webp" capture="environment">
-
-  <!-- 2. Ish maydoni -->
-  <div class="work" id="work" hidden>
-    <section class="card viewer">
-      <div class="viewer-heading">
-        <span class="metric-icon" data-icon="image"></span>
-        <div><strong id="photoName"></strong><small id="photoInfo"></small></div>
-      </div>
-      <div class="toolbar">
-        <button class="btn" id="zoneBtn" data-icon="poly">Zona belgilash</button>
-        <button class="btn ghost" id="zoneClear" hidden data-icon="x">Zonani olib tashlash</button>
-        <span class="hint" id="zoneHint"></span>
-        <span class="sp"></span>
-        <button class="btn ghost on" id="boxesBtn" hidden data-icon="eye">Belgilar</button>
-        <button class="btn ghost" id="newBtn" data-icon="refresh">Boshqa rasm</button>
-      </div>
-      <div class="stage"><canvas id="cv" aria-label="Javon rasmi va tahlil belgilari"></canvas></div>
-      <ul class="gap-legend" id="gapLegend" aria-label="Bo‘sh joy belgilari" hidden></ul>
-    </section>
-
-    <aside class="side">
-      <!-- tahlildan oldin -->
-      <section class="card card-pad" id="pre">
-        <h2 class="section-title">Rasm tayyor</h2>
-        <p class="analysis-help">Rasmda bir nechta javon bo‘lsa, keraklisini <strong>Zona belgilash</strong> orqali tanlang.</p>
-        <button class="btn primary lg block" id="go">Tahlil qilish</button>
-        <div class="err" id="err" role="alert"></div>
-      </section>
-
-      <!-- natija -->
-      <div id="res" hidden style="display:contents">
-        <section class="card card-pad result-overview">
-          <h2 class="section-title">Tahlil natijasi</h2>
-          <div class="kpis" id="kpis"></div>
-        </section>
-        <section class="card card-pad" id="sendPanel" hidden>
-          <h2 class="section-title">Auditni yuborish</h2>
-          <form id="sendForm">
-            <label class="field"><span>Do‘kon</span><select class="input" name="store" required></select></label>
-            <label class="field"><span>Izoh (ixtiyoriy)</span><textarea class="input" name="note" rows="2" maxlength="1000"></textarea></label>
-            <button class="btn primary block" id="sendBtn" type="submit">Hisobotni yuborish</button>
-            <div class="err" id="sendError" role="alert"></div>
-          </form>
-          <p id="sentMessage" hidden role="status">Hisobot yuborildi. <a href="/reports">Hisobotlarni ko‘rish</a></p>
-        </section>
-        <section class="card card-pad" id="shareCard">
-          <p class="section-title">Javondagi ulush</p>
-          <div class="share">
-            <svg class="donut" id="donut" viewBox="0 0 120 120"></svg>
-            <div class="plist" id="legend"></div>
-          </div>
-        </section>
-        <section class="card card-pad">
-          <p class="section-title" id="plTitle">Mahsulotlar</p>
-          <div class="plist" id="plist"></div>
-        </section>
-        <section class="card card-pad" id="teach" hidden>
-          <p class="section-title" id="teachTitle">Tanlangan</p>
-          <label class="field"><span>Bu qaysi mahsulot?</span>
-            <select class="input" id="teachSku"></select></label>
-          <div id="teachNew" hidden>
-            <label class="field"><span>Nomi</span><input class="input" id="teachName" placeholder="Masalan: Черноголовка Мохито 1.5L"></label>
-            <label class="field"><span>Brend</span><input class="input" id="teachBrand" placeholder="Masalan: Черноголовка"></label>
-          </div>
-          <div style="display:flex;gap:8px">
-            <button class="btn ghost" id="teachCancel">Bekor qilish</button>
-            <button class="btn primary" id="teachGo" style="flex:1">Katalogga qo'shish</button>
-          </div>
-          <div class="err" id="teachErr"></div>
-        </section>
-        <div id="notes" style="display:flex;flex-direction:column;gap:10px"></div>
-        <div class="result-actions">
-          <button class="btn" id="exportJson">JSON yuklash</button>
-          <button class="btn" id="exportImage">Rasmni saqlash</button>
-          <button class="btn ghost" id="again" data-icon="refresh">Qayta tahlil qilish</button>
-        </div>
-      </div>
-    </aside>
-  </div>
-</main>
-
-
-</body>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="Rasta AI javon tahlili va korxona ish maydoni.">
+    <title>Rasta AI</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>Rasta AI ishlashi uchun JavaScript?ni yoqing.</noscript>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
 </html>

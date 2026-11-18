@@ -9,7 +9,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from rasta import inference
-from rasta.ai_service import create_ai_app
+from rasta_ai.service import create_ai_app
 from rasta.config import Config
 from rasta.types import Box
 

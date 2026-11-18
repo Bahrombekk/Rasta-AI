@@ -101,7 +101,7 @@ Bunda VLM'ni alohida GPU serverga (yoki alohida konteyner) ajratish tavsiya etil
 
 ```bash
 # NVIDIA GPU bo'lgan serverda (nvidia-container-toolkit o'rnatilgan bo'lishi kerak)
-docker build -f Dockerfile.base -t rasta-ai-base:1 .
+docker build -f ai/Dockerfile.base -t rasta-ai-base:1 .
 docker compose up -d --build        # -> http://localhost:8090
 docker compose exec backend python scripts/manage_users.py superadmin --role super_admin
 docker compose logs -f frontend backend ai
@@ -110,6 +110,29 @@ docker compose logs -f frontend backend ai
 `.env`, AI tokeni, model og‘irliklari va HTTPS sozlamalari uchun [README](README.md#dockerda-ishga-tushirish) bo‘limiga qarang.
 
 CPU-only serverda: `docker-compose.yml` dagi `gpus: all` qatorini olib tashlang (yoki izohga oling), qolgani o'zgarmaydi — `device: auto` avtomatik CPU'ga o'tadi.
+
+## PostgreSQL
+
+Yangi serverda `.env` fayliga `RASTA_POSTGRES_PASSWORD` va `RASTA_DATABASE_URL` kiriting. Compose PostgreSQL xizmati uchun URL shakli `postgresql://rasta:PAROL@postgres:5432/rasta`. URL’dagi maxsus belgilarni URL formatida kodlang. PostgreSQL porti Docker ichki tarmog‘ida ishlaydi.
+
+Yangi o‘rnatish uchun quyidagi buyruqlarni bajaring.
+
+```bash
+docker compose -f docker-compose.yml -f compose.postgres.yml up -d --build --wait
+docker compose -f docker-compose.yml -f compose.postgres.yml exec backend python scripts/manage_users.py superadmin --role super_admin
+```
+
+Mavjud SQLite bazasini ko‘chirishda avval backendni to‘xtating va `rasta-accounts` volume’idan zaxira oling. Import bo‘sh PostgreSQL bazasiga yozadi va SQLite faylini o‘qish rejimida ochadi. Katalog hajmi va katalog rasmlari uchun `rasta-catalog` va `rasta-images` volume’lari ham kerak.
+
+```bash
+docker compose stop backend
+docker compose -f docker-compose.yml -f compose.postgres.yml build backend
+docker compose -f docker-compose.yml -f compose.postgres.yml up -d --wait postgres
+docker compose -f docker-compose.yml -f compose.postgres.yml run --rm --no-deps backend python -m rasta_backend.migrate_sqlite /app/data/accounts/users.sqlite3
+docker compose -f docker-compose.yml -f compose.postgres.yml up -d --build --wait
+```
+
+Import hisobotidagi qatorlar sonini tekshiring. PostgreSQL bilan ishlayotganda bazani `pg_dump` orqali, katalog volume’larini alohida zaxiralang. Importdan oldingi SQLite fayli shu paytdagi ma’lumotlar nusxasidir. Tayyorlik holatida `/api/health` bazaga ulanishni ham tekshiradi. Boshqariladigan PostgreSQL serveriga ulanish uchun asosiy Compose’da `RASTA_DATABASE_URL` ni o‘rnating.
 
 ---
 
