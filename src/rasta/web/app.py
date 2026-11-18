@@ -5,6 +5,8 @@ Admin parol (ixtiyoriy):  RASTA_ADMIN_PASSWORD muhit o'zgaruvchisi.
 """
 from __future__ import annotations
 
+from contextvars import ContextVar
+from copy import copy
 import hmac
 import io
 import json
@@ -26,6 +28,7 @@ from ..config import ROOT, Config, resolve_path
 from ..inference import InferenceUnavailable, RemoteInference
 from .accounts import Accounts, SESSION_COOKIE
 from .session_api import session_router
+from .workspace_api import router as workspace_router
 
 STATIC = ROOT / "frontend"
 MAX_SIDE = 2000                    # katta telefon rasmlari shu o'lchamgacha kichraytiriladi
@@ -36,6 +39,7 @@ MAX_PIXELS = 50_000_000            # "dekompressiya bombasi": kichik fayl, ulkan
 PALETTE = ["#2563eb", "#e11d48", "#16a34a", "#f59e0b", "#7c3aed", "#0891b2", "#ea580c",
            "#db2777", "#65a30d", "#0d9488", "#9333ea", "#ca8a04", "#4f46e5", "#dc2626"]
 OTHER = "#94a3b8"
+organization_scope: ContextVar[int | None] = ContextVar("organization_scope", default=None)
 
 
 class State:
@@ -43,11 +47,12 @@ class State:
     lock = threading.Lock()
     cfg: Optional[Config] = None
     inference: Optional[RemoteInference] = None
+    organization_pipes = {}
     images_dir: Path = ROOT / "data" / "catalog_images"
     public = False      # server tarmoqqa ochiq (0.0.0.0) — parolsiz admin yopiladi
 
 
-def get_pipe():
+def _base_pipe():
     if State.pipe is None:
         with State.lock:
             if State.pipe is None:
@@ -59,6 +64,35 @@ def get_pipe():
                 State.images_dir = resolve_path(State.cfg.get("web.images_dir",
                                                               "data/catalog_images"))
     return State.pipe
+
+
+def get_pipe():
+    pipe = _base_pipe()
+    org_id = organization_scope.get()
+    if org_id in (None, 1):
+        return pipe
+    with State.lock:
+        if org_id not in State.organization_pipes:
+            from ..catalog import build_catalog
+
+            cfg = State.cfg.copy()
+            path = cfg.get("catalog.path", "data/qdrant")
+            if path != ":memory:":
+                cfg.set("catalog.path", str(resolve_path(path) / "organizations" / str(org_id)))
+            cfg.set("catalog.collection", f"{cfg.get('catalog.collection', 'rasta_skus')}_org_{org_id}")
+            cfg.set("recognition.negatives", None)
+            scoped = copy(pipe)
+            scoped.catalog = build_catalog(cfg, pipe.catalog.dim)
+            scoped.catalog.negatives = pipe.catalog.negatives
+            State.organization_pipes[org_id] = scoped
+        return State.organization_pipes[org_id]
+
+
+def images_root():
+    org_id = organization_scope.get()
+    if org_id in (None, 1):
+        return State.images_dir
+    return State.images_dir / ".organizations" / str(org_id)
 
 
 def check_legacy_admin(token: Optional[str]):
@@ -106,7 +140,7 @@ def slug(s: str) -> str:
 
 
 def thumb_url(sku: str) -> Optional[str]:
-    d = State.images_dir / sku
+    d = images_root() / sku
     if d.is_dir():
         fs = sorted(d.glob("*.jpg"))
         if fs:
@@ -115,14 +149,14 @@ def thumb_url(sku: str) -> Optional[str]:
 
 
 def image_files(sku: str) -> list[Path]:
-    d = State.images_dir / sku
+    d = images_root() / sku
     return sorted(d.glob("*.jpg")) if d.is_dir() else []
 
 
 def save_images(sku: str, imgs: list, prefix: str = "", max_side: Optional[int] = 800) -> list[Path]:
     """Mahsulot rasmlarini saqlash. prefix "c" — javondan o'rgatilgan crop (qayta
     indekslashda augmentatsiyasiz, "crop" sifatida qo'shiladi)."""
-    d = State.images_dir / sku
+    d = images_root() / sku
     d.mkdir(parents=True, exist_ok=True)
     nums = [int(m.group(1)) for f in d.glob("*.jpg") if (m := re.search(r"(\d+)$", f.stem))]
     start = max(nums, default=-1) + 1
@@ -242,11 +276,14 @@ def summarize(result, colors: dict[str, str]) -> dict:
 
 def create_app(cfg: Optional[Config] = None, public: bool = False, *,
                accounts: Accounts | None = None, secure_cookies: bool = False,
-               serve_frontend: bool = True) -> FastAPI:
+               serve_frontend: bool = True, workspaces=None) -> FastAPI:
     State.cfg = cfg
     State.public = public
+    State.organization_pipes = {}
     app = FastAPI(title="Rasta AI backend", docs_url=None, redoc_url=None, openapi_url=None)
-    app.include_router(session_router(accounts, secure_cookies))
+    app.include_router(session_router(accounts, secure_cookies, workspaces=workspaces))
+    if workspaces is not None:
+        app.include_router(workspace_router(workspaces))
 
     def check_admin(token):
         if accounts is None:
@@ -259,15 +296,30 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
         private = path.startswith(("/api/", "/media/"))
         if private and accounts is not None:
             request.state.user = await run_in_threadpool(accounts.session, request.cookies.get(SESSION_COOKIE))
+            if workspaces is not None:
+                request.state.user = await run_in_threadpool(workspaces.identity, request.state.user)
             if request.method not in ("GET", "HEAD", "OPTIONS") and request.headers.get("X-Rasta-Request") != "1":
                 return JSONResponse({"detail": "So‘rov tasdiqlanmadi."}, status_code=403)
             public_api = path in {"/api/session", "/api/session/login", "/api/session/logout", "/api/health"}
             if not public_api and request.state.user is None:
                 return JSONResponse({"detail": "Hisobingizga kiring."}, status_code=401)
         if path == "/api/team" or path.startswith("/api/team/"):
+            if workspaces is not None:
+                return JSONResponse({"detail": "Korxona jamoasi sahifasidan foydalaning."}, status_code=404)
             if not request.state.user or request.state.user["role"] != "super_admin":
                 return JSONResponse({"detail": "Super admin ruxsati kerak."}, status_code=403)
-        response = await call_next(request)
+        user = request.state.user or {}
+        if workspaces is not None:
+            catalog_action = path == "/api/products" or path.startswith("/api/products/") or path in {"/api/teach", "/api/reindex"}
+            analysis_action = path == "/api/analyze" or path.startswith("/media/")
+            if (catalog_action and user.get("role") != "org_admin"
+                    or analysis_action and user.get("role") not in {"org_admin", "operator"}):
+                return JSONResponse({"detail": "Ushbu amal uchun ruxsat yetarli emas."}, status_code=403)
+        scope = organization_scope.set(user.get("org_id"))
+        try:
+            response = await call_next(request)
+        finally:
+            organization_scope.reset(scope)
         if private and accounts is not None:
             response.headers["Cache-Control"] = "no-store"
         return response
@@ -285,13 +337,16 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
             return page
 
         for path, filename in {"/": "index.html", "/admin": "admin.html", "/login": "login.html",
-                               "/team": "team.html", "/account": "account.html"}.items():
+                               "/team": "team.html", "/account": "account.html", "/dashboard": "workspace.html",
+                               "/reports": "workspace.html", "/organizations": "workspace.html",
+                               "/members": "workspace.html", "/stores": "workspace.html"}.items():
             app.add_api_route(path, endpoint(filename), methods=["GET"])
 
     @app.get("/media/{sku}/{name}")
     def media(sku: str, name: str):
-        p = (State.images_dir / sku / name).resolve()
-        if State.images_dir.resolve() not in p.parents or not p.is_file():
+        root = images_root().resolve()
+        p = (root / sku / name).resolve()
+        if not p.is_relative_to(root) or len(p.relative_to(root).parts) != 2 or p.suffix != ".jpg" or not p.is_file():
             raise HTTPException(404)
         return FileResponse(p)
 
@@ -375,7 +430,7 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
         pipe = get_pipe()
         with State.lock:
             v = product_or_404(pipe, sku)
-            f = State.images_dir / sku / name
+            f = images_root() / sku / name
             files = image_files(sku)
             if f not in files:
                 raise HTTPException(404, "Rasm topilmadi")
@@ -467,7 +522,7 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
         return {"reindexed": done, "skipped": skipped}
 
     @app.post("/api/analyze")
-    def analyze(image: UploadFile = File(...), roi: str = Form(""),
+    def analyze(request: Request, image: UploadFile = File(...), roi: str = Form(""),
                 roi_normalized: bool = Form(False)):
         img = read_image(read_upload(image))
         region = None
@@ -496,8 +551,12 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
             res = (pipe.analyze_region(img, region) if region is not None
                    else pipe.analyze_image(img))
             summary = summarize(res, color_map(res))
-        return JSONResponse({"summary": summary, **geometry(res),
-                             "size": [int(img.shape[1]), int(img.shape[0])]})
+        data = {"summary": summary, **geometry(res), "size": [int(img.shape[1]), int(img.shape[0])]}
+        if workspaces is not None:
+            with io.BytesIO() as buf:
+                Image.fromarray(img).save(buf, "JPEG", quality=90)
+                data["report_id"] = workspaces.create_draft(request.state.user, data, buf.getvalue())
+        return JSONResponse(data)
 
     @app.get("/api/health")
     def health():

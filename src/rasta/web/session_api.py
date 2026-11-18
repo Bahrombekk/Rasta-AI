@@ -20,13 +20,13 @@ class PasswordUpdate(BaseModel):
     password: str = Field(max_length=128)
 
 
-def session_router(accounts, secure):
+def session_router(accounts, secure, *, workspaces=None):
     router = APIRouter()
 
     @router.get("/api/session")
     def session(request: Request, response: Response):
         response.headers["Cache-Control"] = "no-store"
-        return {"enabled": accounts is not None, "user": request.state.user}
+        return {"enabled": accounts is not None, "workspaces": workspaces is not None, "user": request.state.user}
 
     @router.post("/api/session/login")
     def login(body: Login, request: Request, response: Response):
@@ -39,11 +39,17 @@ def session_router(accounts, secure):
                                 headers={"Retry-After": "900"})
         if not token:
             raise HTTPException(401, "Login yoki parol xato.")
+        user = accounts.session(token)
+        if workspaces is not None:
+            user = workspaces.identity(user)
+            if user is None:
+                accounts.logout(token)
+                raise HTTPException(403, "Korxona ish maydoni faol emas.")
         accounts.logout(request.cookies.get(SESSION_COOKIE))
         response.headers["Cache-Control"] = "no-store"
         response.set_cookie(SESSION_COOKIE, token, max_age=SESSION_TTL, httponly=True,
                             secure=secure, samesite="lax")
-        return {"user": accounts.session(token)}
+        return {"user": user, "workspaces": workspaces is not None}
 
     @router.post("/api/session/logout")
     def logout(request: Request, response: Response):

@@ -67,12 +67,14 @@ python -m pytest tests -q                 # 58 ta test
 
 ## Veb-ilova
 
-- **Tahlil** (`/`) javon yoki muzlatgich rasmini yuklash, zona tanlash, mahsulotlar va bo‘sh joylarni ko‘rish hamda natijani PNG yoki JSON sifatida saqlash imkonini beradi.
-- **Katalog** (`/admin`) SKU, brend va mahsulot rasmlarini boshqaradi. Admin va super admin bu sahifaga kirishi mumkin.
-- **Jamoa** (`/team`) super admin uchun. Bu yerda admin yaratish, vaqtincha o‘chirish, qayta faollashtirish va parolini tiklash mumkin.
+- **Super admin** (`/organizations`) korxonalar va korxona adminlari hisoblarini boshqaradi.
+- **Korxona admini** (`/dashboard`) o‘z korxonasi statistikasini ko‘radi, katalog (`/admin`), do‘konlar (`/stores`) va operatorlar (`/members`)ni boshqaradi hamda auditlarni ko‘rib chiqadi.
+- **Operator** (`/`) javon rasmini yuklaydi, zona tanlaydi, AI natijasini ko‘radi va do‘kon bilan birga korxonasiga yuboradi. O‘z auditlari va admin izohlari `/reports` sahifasida.
 - **Hisob** (`/account`) joriy parolni almashtiradi va eski sessiyalarni yakunlaydi.
 
 Docker uchta xizmatni ishga tushiradi. **Frontend** Nginx orqali saytni beradi. **Backend** FastAPI orqali hisoblar, katalog, javon geometriyasi va KPI’larni boshqaradi. **AI** xizmati YOLO deteksiyasi va embeddinglarni hisoblaydi. Brauzer faqat frontend portiga ulanadi.
+
+Sessiya korxona katalogi, SKU rasmlari va auditlar doirasini belgilaydi. Oldingi Docker admin hisoblari birinchi ishga tushishda mavjud katalog bilan **Asosiy korxona**ga biriktiriladi. Mahsulot rejasi va joylashtirish chegaralari [PRODUCT.md](PRODUCT.md) faylida.
 
 ## Docker’da ishga tushirish
 
@@ -86,12 +88,12 @@ docker compose up -d --build
 docker compose exec backend python scripts/manage_users.py superadmin --role super_admin
 ```
 
-Brauzerda **http://127.0.0.1:8090/login** ni oching, super admin bo‘lib kiring va **Jamoa** sahifasida admin yarating. Compose portini `RASTA_PORT` orqali sozlash mumkin.
+Brauzerda **http://127.0.0.1:8090/login** ni oching. Super admin **Korxonalar** sahifasida korxona va uning birinchi adminini yaratadi. Korxona admini birinchi do‘kon va operatorni qo‘shadi. Compose portini `RASTA_PORT` orqali sozlash mumkin.
 
 - `rasta-catalog`, `rasta-images` va `rasta-accounts` volume’larini birga zaxiralang. `docker compose down -v` ularni o‘chiradi.
 - Xizmat loglari uchun `docker compose logs -f frontend backend ai` ishlating. Tayyorlik holati `/api/health` da ko‘rinadi.
 - Domen bilan chiqarishda frontendni HTTPS reverse proxy ortiga joylashtiring va `RASTA_SECURE_COOKIES=1` belgilang.
-- Docker’siz lokal dasturlash uchun `python scripts/serve.py` ham ishlaydi. Shu rejimda hisoblarni yoqish uchun `RASTA_ACCOUNTS_DB` ni belgilang va `python scripts/manage_users.py superadmin` orqali birinchi hisobni yarating.
+- Docker’siz lokal dasturlash uchun `python scripts/serve.py` ham ishlaydi. Korxonali rejim uchun `RASTA_ACCOUNTS_DB` va `RASTA_WORKSPACES=1` belgilang va `python scripts/manage_users.py superadmin` orqali birinchi hisobni yarating.
 
 ## Real ishlatish (buyruq qatori)
 

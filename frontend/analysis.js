@@ -3,6 +3,12 @@
   const cv = $("cv"), ctx = cv.getContext("2d");
   let file = null, img = null, pts = [], drawing = false, closed = false;
   let R = null, showBoxes = true, hl = null, analysis = null, pendingImage = null;
+  let canTeach = false;
+  const sendForm = $("sendForm");
+  rastaSession.then(session => {
+    canTeach = !session.workspaces || session.user?.role === "org_admin";
+    $("historyLink").hidden = !session.workspaces;
+  });
   const sel = new Set();          // o'rgatish uchun tanlangan qutilar
   const gapLayers = [
     { key: "gaps", label: "Bo‘sh joy", color: "#dc2626", dash: [6, 4] },
@@ -136,7 +142,7 @@
   $("zoneClear").onclick = () => { resetResult(); drawing = false; pts = []; closed = false; ui(); draw(); };
   cv.addEventListener("click", e => {
     if (!drawing) {
-      if (!R || !showBoxes) return;
+      if (!R || !showBoxes || !canTeach) return;
       const r = cv.getBoundingClientRect(), s = k();
       const x = (e.clientX - r.left) * s / R.scale[0], y = (e.clientY - r.top) * s / R.scale[1];
       let best = -1, area = Infinity;
@@ -237,6 +243,7 @@
       .join("");
     $("gapLegend").hidden = !$("gapLegend").children.length;
     sel.clear(); teachUi();
+    setupSubmission(d.report_id);
 
     const tiles = [
       kpi("box", "Mahsulotlar", s.num_products, `<div class="meter"><i style="width:100%"></i></div>`),
@@ -274,7 +281,7 @@
         </div>
         <div class="r"><b>${p.facings} ta</b><div>${p.share_pct.toFixed(1)}%</div></div>
       </div>`).join("")
-      : `<div class="empty">Katalogdagi mahsulotlar topilmadi.<br><a href="/admin">Mahsulot qo'shish →</a></div>`;
+      : `<div class="empty">Katalogdagi mahsulotlar topilmadi.${canTeach ? '<br><a href="/admin">Mahsulot qo‘shish →</a>' : ''}</div>`;
 
     document.querySelectorAll("[data-sku]").forEach(el => {
       if (!el.dataset.sku) return;
@@ -282,8 +289,9 @@
       el.addEventListener("mouseleave", () => setHl(null));
     });
 
-    const notes = [["poly", "Xato tanilgan yoki tanilmagan mahsulotni rasmda <b>bosib tanlang</b> va to'g'ri nomini bering — tizim javondagi shu ko'rinishdan o'rganadi."]];
-    if (s.num_unknown > 0) notes.push(["info", `${s.num_unknown} ta mahsulotning SKU’si aniqlanmadi. Ularni <a href="/admin">Mahsulotlar</a> bo‘limida katalogga qo‘shish mumkin.`]);
+    const notes = [];
+    if (canTeach) notes.push(["poly", "Mahsulotni rasmda bosib tanlang va katalogga qo‘shing."]);
+    if (s.num_unknown > 0) notes.push(["info", `${s.num_unknown} ta mahsulotning SKU’si aniqlanmadi.`]);
     if (s.oos_status === "limited_scene") notes.push(["alert", "Bo‘sh o‘rinlarni aniqroq baholash uchun javonni old tomondan suratga oling yoki zona belgilang.", "warn"]);
     if (s.oos_status === "insufficient_products") notes.push(["info", "Bo‘sh o‘rinlar bahosi uchun kamida bitta qatorda ikki mahsulot aniqlanishi kerak."]);
     if (s.area_fill_pct != null) notes.push(["layers", `Belgilangan maydonning ${s.area_fill_pct}% qismida mahsulot aniqlandi.`]);
@@ -293,6 +301,46 @@
     $("pre").hidden = true; $("res").hidden = false; $("boxesBtn").hidden = false;
     draw();
   }
+
+  async function setupSubmission(reportId) {
+    $("sendPanel").hidden = !reportId;
+    if (!reportId) return;
+    sendForm.reset();
+    sendForm.hidden = false;
+    $("sentMessage").hidden = true;
+    $("sendBtn").disabled = true;
+    $("sendError").textContent = "";
+    try {
+      const { stores } = await rastaJson("/api/stores");
+      if (R?.report_id !== reportId) return;
+      sendForm.elements.store.replaceChildren(new Option("Do‘konni tanlang", ""), ...stores.map(store => new Option(store.name, store.id)));
+      $("sendBtn").disabled = stores.length === 0;
+      if (!stores.length) $("sendError").textContent = "Korxona admini avval do‘kon qo‘shishi kerak.";
+    } catch (error) {
+      if (R?.report_id === reportId) $("sendError").textContent = error.message;
+    }
+  }
+  sendForm.onsubmit = async event => {
+    event.preventDefault();
+    const reportId = R?.report_id;
+    if (!reportId) return;
+    $("sendBtn").disabled = true;
+    $("sendError").textContent = "";
+    try {
+      await rastaJson(`/api/reports/${reportId}/submit`, "POST", {
+        store_id: Number(sendForm.elements.store.value), note: sendForm.elements.note.value
+      });
+      if (R?.report_id !== reportId) return;
+      sendForm.hidden = true;
+      $("sentMessage").hidden = false;
+      $("sentMessage").querySelector("a").href = `/reports?id=${encodeURIComponent(reportId)}`;
+    } catch (error) {
+      if (R?.report_id === reportId) {
+        $("sendError").textContent = error.message;
+        $("sendBtn").disabled = false;
+      }
+    }
+  };
   // ---------- javondan o'rgatish ----------
   const token = () => { try { return sessionStorage.getItem("rasta-admin") || ""; } catch (e) { return ""; } };
   let products = [];

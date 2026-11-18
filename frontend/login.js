@@ -5,7 +5,10 @@ const loginError = document.getElementById("error");
 const passwordInput = document.getElementById("login-password");
 const togglePassword = document.getElementById("toggle-password");
 const next = new URLSearchParams(location.search).get("next");
-const target = ["/", "/admin", "/team", "/account"].includes(next) ? next : "/";
+function target(session) {
+  return ["/", "/admin", "/team", "/account", "/organizations", "/dashboard", "/reports", "/members", "/stores"].includes(next)
+    ? next : session.workspaces ? rastaHome(session.user) : "/";
+}
 
 function showError(message = "") {
   loginError.textContent = message;
@@ -21,7 +24,7 @@ togglePassword.onclick = () => {
 };
 
 rastaSession.then(session => {
-  if (session.user || session.enabled === false) location.replace(target);
+  if (session.user || session.enabled === false) location.replace(target(session));
   if (session.unavailable) showError("Serverga ulanib bo‘lmadi. Keyinroq urinib ko‘ring.");
 });
 
@@ -31,8 +34,8 @@ loginForm.onsubmit = async event => {
   submitText.textContent = "Kirilmoqda…";
   showError();
   try {
-    await rastaJson("/api/session/login", "POST", Object.fromEntries(new FormData(loginForm)));
-    location.replace(target);
+    const session = await rastaJson("/api/session/login", "POST", Object.fromEntries(new FormData(loginForm)));
+    location.replace(target(session));
   } catch (error) {
     showError(error.message);
     loginButton.disabled = false;

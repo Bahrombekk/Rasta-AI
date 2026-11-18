@@ -18,6 +18,7 @@ services:
       RASTA_AI_URL: http://ai:8012
       RASTA_AI_TOKEN: "${RASTA_AI_TOKEN:?Set RASTA_AI_TOKEN in .env}"
       RASTA_ACCOUNTS_DB: /app/data/accounts/users.sqlite3
+      RASTA_WORKSPACES: "1"
       RASTA_SECURE_COOKIES: "${RASTA_SECURE_COOKIES:-0}"
       FORWARDED_ALLOW_IPS: "*"
     volumes:

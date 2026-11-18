@@ -30,6 +30,10 @@
     scan: '<path d="M8 4H4v4m12-4h4v4M4 16v4h4m12-4v4h-4M7 12h10"/>',
     "arrow-right": '<path d="M4 12h15m-6-6 6 6-6 6"/>',
     "eye-off": '<path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.6 5.4a9.1 9.1 0 0 1 2.4-.4c5.5 0 9 7 9 7a17 17 0 0 1-2.5 3.4M6.2 6.7A17 17 0 0 0 3 12s3.5 7 9 7a8 8 0 0 0 4.1-1.2"/>',
+    chart: '<path d="M4 4v16h16M8 16v-3m4 3V9m4 7V6"/>',
+    report: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6m-6 4h6m-6 4h4"/>',
+    building: '<path d="M4 21V4h12v17m0-11h4v11M2 21h20M8 8h4m-4 4h4m-4 4h4"/>',
+    store: '<path d="M4 10v10h16V10M3 10l2-6h14l2 6M3 10c0 3 4 3 4 0 0 3 5 3 5 0 0 3 5 3 5 0 0 3 4 3 4 0M10 20v-5h4v5"/>',
   };
   window.icon = (n, cls = "i") => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ""}</svg>`;
   window.esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -42,6 +46,11 @@
   window.rastaSession = fetch("/api/session", { cache: "no-store" })
     .then(r => { if (!r.ok) throw new Error(); return r.json(); })
     .catch(() => ({ unavailable: true, user: null }));
+  window.rastaHome = user => ({super_admin: "/organizations", org_admin: "/dashboard"})[user?.role] || "/";
+  window.rastaRole = role => ({super_admin: "Super admin", org_admin: "Korxona admini", operator: "Operator"})[role] || "Admin";
+  window.rastaDate = seconds => seconds ? new Intl.DateTimeFormat("uz-UZ", {
+    dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Tashkent"
+  }).format(new Date(seconds * 1000)) : "—";
   window.rastaFetch = async (url, options = {}) => {
     const headers = new Headers(options.headers);
     if (options.method && options.method.toUpperCase() !== "GET") headers.set("X-Rasta-Request", "1");
@@ -66,18 +75,22 @@
   };
 
   function shell(el) {
-    const page = el.dataset.page;
+    const page = el.dataset.page || (location.pathname.slice(1) || "analysis");
     const links = [
       ["analysis", "/", "scan", "Javon tahlili"],
       ["catalog", "/admin", "box", "Katalog"],
       ["team", "/team", "users", "Jamoa"],
+      ["organizations", "/organizations", "building", "Korxonalar"],
+      ["dashboard", "/dashboard", "chart", "Bosh panel"],
+      ["reports", "/reports", "report", "Hisobotlar"],
+      ["stores", "/stores", "store", "Do‘konlar"],
+      ["members", "/members", "users", "Xodimlar"],
     ];
     el.className = "shell";
     el.innerHTML = `
-      <a class="logo" href="/"><span class="mark">${icon("logo")}</span><span>Rasta AI</span></a>
-      <nav class="shell-links" aria-label="Asosiy menyu">${links.map(([key, href, glyph, label]) =>
-        `<a href="${href}" ${key === page ? 'aria-current="page"' : ''} ${key === "team" ? 'data-team hidden' : ''}>
-          ${icon(glyph)}<span>${label}</span></a>`).join("")}</nav>
+      <a class="logo" href="/"><span class="mark">${icon("scan")}</span><span>Rasta AI</span></a>
+      <div class="shell-context" hidden><span class="shell-context-icon">${icon("building")}</span><span></span></div>
+      <nav class="shell-links" aria-label="Asosiy menyu"></nav>
       <div class="shell-account">
         <a class="profile" href="/account" aria-label="Mening hisobim" hidden>${icon("user")}<span><strong></strong><small></small></span></a>
         <div class="shell-tools">
@@ -99,11 +112,29 @@
     };
     rastaSession.then(session => {
       if (session.enabled && !session.user) { location.replace(loginUrl()); return; }
-      if (page === "team" && session.user?.role !== "super_admin") { location.replace("/"); return; }
+      const role = session.user?.role;
+      const menu = session.workspaces
+        ? ({super_admin: ["organizations"], org_admin: ["dashboard","analysis","reports","catalog","stores","members"],
+            operator: ["analysis","reports"]})[role] || []
+        : ["analysis", "catalog", ...(role === "super_admin" ? ["team"] : [])];
+      if (session.workspaces && page !== "account" && !menu.includes(page)) {
+        location.replace(rastaHome(session.user));
+        return;
+      }
+      if (!session.workspaces && page === "team" && role !== "super_admin") { location.replace("/"); return; }
+      const nav = el.querySelector(".shell-links");
+      nav.innerHTML = menu.map(key => links.find(link => link[0] === key)).map(([key, href, glyph, label]) =>
+        `<a href="${href}" ${key === page ? 'aria-current="page"' : ''}>${icon(glyph)}<span>${label}</span></a>`).join("");
+      if (session.workspaces) {
+        el.classList.add("workspace-shell");
+        el.querySelector(".logo").href = rastaHome(session.user);
+        const context = el.querySelector(".shell-context");
+        context.querySelector("span:last-child").textContent = session.user.organization || "Platforma boshqaruvi";
+        context.hidden = false;
+      }
       if (!session.user) return;
-      el.querySelector("[data-team]").hidden = session.user.role !== "super_admin";
       profile.querySelector("strong").textContent = session.user.username;
-      profile.querySelector("small").textContent = session.user.role === "super_admin" ? "Super admin" : "Admin";
+      profile.querySelector("small").textContent = rastaRole(role);
       profile.hidden = false;
       logout.hidden = false;
     });
