@@ -1,9 +1,41 @@
+import csv
+from dataclasses import dataclass
+from datetime import date, datetime
+import io
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from .session_api import AdminUpdate, Login
+from .workspaces import TASHKENT
+
+ReportStatus = Literal["draft", "submitted", "approved", "returned"]
+CSV_LIMIT = 10_000
+
+
+@dataclass(frozen=True)
+class ReportFilters:
+    status: ReportStatus | None
+    store_id: int | None
+    author_id: int | None
+    start: date | None
+    end: date | None
+
+
+def report_filters(status: ReportStatus | None = None, store_id: int | None = Query(None, gt=0),
+                   author_id: int | None = Query(None, gt=0),
+                   start: date | None = Query(None, alias="from"), end: date | None = Query(None, alias="to")):
+    if start and end and start > end:
+        raise HTTPException(400, "Boshlanish sanasi tugash sanasidan keyin bo‘lishi mumkin emas.")
+    return ReportFilters(status, store_id, author_id, start, end)
+
+
+def csv_text(value):
+    value = value or ""
+    if value.lstrip().startswith(("=", "+", "-", "@")) or value.startswith(("\t", "\r", "\n")):
+        return "'" + value
+    return value
 
 
 class Organization(Login):
@@ -120,11 +152,32 @@ def router(workspaces):
         return workspaces.overview(require(request, "org_admin", "operator"), int(days))
 
     @api.get("/reports")
-    def reports(request: Request, status: Literal["draft", "submitted", "approved", "returned"] | None = None,
-                offset: int = Query(0, ge=0)):
+    def reports(request: Request, filters: ReportFilters = Depends(report_filters),
+                offset: int = Query(0, ge=0, le=2_147_483_647)):
         user = require(request, "org_admin", "operator")
-        rows = workspaces.list_reports(user, status, offset)
-        return {"reports": rows[:50], "has_more": len(rows) > 50}
+        rows, total = workspaces.list_reports(user, filters, offset)
+        return {"reports": rows, "total": total, "has_more": offset + len(rows) < total}
+
+    @api.get("/reports/export.csv")
+    def export_reports(request: Request, filters: ReportFilters = Depends(report_filters)):
+        user = require(request, "org_admin")
+        if filters.status == "draft":
+            raise HTTPException(400, "CSV formatida yuborilgan auditlar yuklanadi.")
+        rows, _ = workspaces.list_reports(user, filters, limit=CSV_LIMIT + 1, count_total=False)
+        if len(rows) > CSV_LIMIT:
+            raise HTTPException(400, "CSV uchun davrni qisqartiring (ko‘pi bilan 10 000 audit).")
+        output = io.StringIO(newline="")
+        output.write("\ufeff")
+        writer = csv.writer(output)
+        writer.writerow(["Audit ID", "Do‘kon", "Yuborgan", "Holat", "Yuborilgan vaqt (Toshkent)",
+                         "Topilgan mahsulotlar", "Tanilgan SKU", "Bo‘sh joylar"])
+        statuses = {"submitted": "Tekshiruvda", "approved": "Tasdiqlangan", "returned": "Qaytarilgan"}
+        for row in rows:
+            timestamp = datetime.fromtimestamp(row["submitted"], TASHKENT).strftime("%d.%m.%Y %H:%M")
+            writer.writerow([row["id"], csv_text(row["store"]), csv_text(row["author"]), statuses[row["status"]],
+                             timestamp, row["products"], row["recognized"], row["gaps"]])
+        return Response(output.getvalue(), media_type="text/csv",
+                        headers={"Content-Disposition": 'attachment; filename="rasta-auditlar.csv"'})
 
     @api.get("/reports/{report_id}")
     def report(request: Request, report_id: str):

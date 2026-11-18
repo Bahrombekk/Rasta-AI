@@ -45,6 +45,8 @@ class Workspaces:
                 );
                 CREATE INDEX IF NOT EXISTS reports_org_time ON reports(org_id, submitted DESC);
                 CREATE INDEX IF NOT EXISTS reports_author_time ON reports(org_id, author_id, created DESC);
+                CREATE INDEX IF NOT EXISTS reports_org_display_time
+                    ON reports(org_id, COALESCE(submitted,created) DESC);
                 CREATE TABLE IF NOT EXISTS report_events (
                     id INTEGER PRIMARY KEY, report_id TEXT NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
                     user_id INTEGER NOT NULL REFERENCES users(id), status TEXT NOT NULL,
@@ -216,18 +218,40 @@ class Workspaces:
             return "r.org_id=? AND (r.status!='draft' OR r.author_id=?)", (user["org_id"], user["id"])
         return "r.org_id=? AND r.author_id=?", (user["org_id"], user["id"])
 
-    def list_reports(self, user, status, offset):
+    def _report_filters(self, user, filters):
         where, args = self._visibility(user)
-        where += " AND r.status=? " if status else " AND r.status!='draft' "
-        if status:
-            args += (status,)
+        where += " AND r.status=?" if filters.status else " AND r.status!='draft'"
+        if filters.status:
+            args += (filters.status,)
+        if filters.store_id is not None:
+            where += " AND r.store_id=?"
+            args += (filters.store_id,)
+        if filters.author_id is not None:
+            where += " AND r.author_id=?"
+            args += (filters.author_id,)
+        if filters.start is not None:
+            where += " AND COALESCE(r.submitted,r.created)>=?"
+            args += (int(datetime.combine(filters.start, datetime.min.time(), TASHKENT).timestamp()),)
+        if filters.end is not None:
+            where += " AND COALESCE(r.submitted,r.created)<?"
+            args += (int(datetime.combine(filters.end, datetime.min.time(), TASHKENT).timestamp()) + 86400,)
+        return where, args
+
+    def list_reports(self, user, filters, offset=0, *, limit=50, count_total=True):
+        where, args = self._report_filters(user, filters)
         with self.db() as db:
-            return [dict(row) for row in db.execute(f"""
+            if count_total:
+                db.execute("BEGIN")
+                total = db.execute(f"SELECT COUNT(*) FROM reports r WHERE {where}", args).fetchone()[0]
+            else:
+                total = None
+            rows = [dict(row) for row in db.execute(f"""
                 SELECT r.id,r.status,r.created,r.submitted,r.products,r.recognized,r.gaps,
                 s.name AS store,u.username AS author FROM reports r
                 LEFT JOIN stores s ON s.id=r.store_id JOIN users u ON u.id=r.author_id
-                WHERE {where} ORDER BY COALESCE(r.submitted,r.created) DESC,r.rowid DESC LIMIT 51 OFFSET ?
-            """, (*args, offset))]
+                WHERE {where} ORDER BY COALESCE(r.submitted,r.created) DESC,r.rowid DESC LIMIT ? OFFSET ?
+            """, (*args, limit, offset))]
+            return rows, total
 
     def report(self, user, report_id, *, photo=False):
         where, args = self._visibility(user)
@@ -284,12 +308,12 @@ class Workspaces:
                 WHERE {where} GROUP BY day
             """, args)}
             totals["store_activity"] = [dict(row) for row in db.execute(f"""
-                SELECT s.name,COUNT(*) AS reports,SUM(r.gaps) AS gaps FROM reports r
+                SELECT s.id,s.name,COUNT(*) AS reports,SUM(r.gaps) AS gaps FROM reports r
                 JOIN stores s ON s.id=r.store_id WHERE {where}
                 GROUP BY s.id ORDER BY reports DESC,s.name LIMIT 5
             """, args)]
             totals["operator_activity"] = [dict(row) for row in db.execute(f"""
-                SELECT u.username,COUNT(*) AS reports,SUM(r.status='approved') AS approved FROM reports r
+                SELECT u.id,u.username,COUNT(*) AS reports,SUM(r.status='approved') AS approved FROM reports r
                 JOIN users u ON u.id=r.author_id WHERE {where}
                 GROUP BY u.id ORDER BY reports DESC,u.username LIMIT 5
             """, args)]

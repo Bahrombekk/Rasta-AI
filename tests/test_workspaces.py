@@ -1,3 +1,7 @@
+import csv
+from datetime import datetime, timezone
+import io
+
 from fastapi.testclient import TestClient
 
 from test_accounts import HEADERS, INITIAL, login
@@ -79,6 +83,30 @@ def test_organization_boundaries_and_shelf_review(tmp_path, monkeypatch):
         ]
         assert admin.get("/api/overview?days=7").json()["approved"] == 1
         assert other.get("/api/overview?days=7").json()["reports"] == 0
+        report_id = report.rsplit("/", 1)[1]
+        before_midnight_utc = int(datetime(2025, 12, 31, 19, tzinfo=timezone.utc).timestamp())
+        with spaces.db() as db:
+            db.execute("UPDATE reports SET submitted=? WHERE id=?", (before_midnight_utc, report_id))
+        params = {"store_id": store, "author_id": member_id, "status": "approved",
+                  "from": "2026-01-01", "to": "2026-01-01"}
+        filtered = admin.get("/api/reports", params=params).json()
+        assert filtered["total"] == 1 and filtered["reports"][0]["id"] == report_id
+        assert other.get("/api/reports", params=params).json()["total"] == 0
+        assert admin.get("/api/reports", params={**params, "store_id": foreign_store}).json()["total"] == 0
+        assert admin.get("/api/reports", params={**params, "to": "2025-12-31"}).status_code == 400
+        assert admin.get("/api/reports?to=2025-12-31").json()["total"] == 0
+        assert admin.get("/api/reports", params={**params, "offset": 50}).json() == {
+            "total": 1, "reports": [], "has_more": False,
+        }
+        assert admin.patch(f"/api/stores/{store}", headers=HEADERS,
+                           json={"name": "=Spreadsheet text"}).status_code == 200
+        response = admin.get("/api/reports/export.csv", params=params)
+        assert response.status_code == 200 and response.content.startswith(b"\xef\xbb\xbf")
+        csv_rows = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
+        assert csv_rows[1][:5] == [report_id, "'=Spreadsheet text", "field-user", "Tasdiqlangan", "01.01.2026 00:00"]
+        assert len(list(csv.reader(io.StringIO(other.get("/api/reports/export.csv", params=params).text)))) == 1
+        assert operator.get("/api/reports/export.csv", params=params).status_code == 403
+        assert admin.get("/api/reports/export.csv?status=draft").status_code == 400
         assert root.patch(f"/api/organizations/{org_id}", headers=HEADERS,
                           json={"name": "Another Company", "active": False}).status_code == 200
         assert other.get("/api/products").status_code == 401

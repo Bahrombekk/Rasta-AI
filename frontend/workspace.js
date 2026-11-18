@@ -9,7 +9,21 @@
   const count = value => format.format(value ?? 0);
   const tag = (text, tone = "") => `<span class="work-tag ${tone}">${esc(text)}</span>`;
   const reportTag = status => tag(statusNames[status], status);
-  const reportUrl = id => `/reports?id=${encodeURIComponent(id)}`;
+  const reportFilterKeys = ["status", "store_id", "author_id", "from", "to"];
+  function reportFilters(source = queries) {
+    const params = new URLSearchParams();
+    for (const key of reportFilterKeys) if (source.get(key)) params.set(key, source.get(key));
+    return params;
+  }
+  function reportsUrl(params = new URLSearchParams()) {
+    const query = params.toString();
+    return query ? `/reports?${query}` : "/reports";
+  }
+  function reportUrl(id, filters = new URLSearchParams()) {
+    const params = new URLSearchParams(filters);
+    params.set("id", id);
+    return reportsUrl(params);
+  }
   const empty = (title, message, glyph = "report") =>
     `<div class="work-empty"><span class="metric-icon">${icon(glyph)}</span><strong>${esc(title)}</strong><p>${esc(message)}</p></div>`;
   let session, editorSubmit;
@@ -72,10 +86,10 @@
     <div><span class="metric-icon ${tone}">${icon(glyph)}</span><span>${label}</span></div><strong>${value}</strong></article>`;
   const table = (labels, rows) => `<div class="work-table-wrap"><table class="work-table">
     <thead><tr>${labels.map(label => `<th scope="col">${label}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>`;
-  const reportRows = rows => table(["Do‘kon", "Holat", "Mahsulot", "Bo‘sh joy", "Yuborilgan", ""],
+  const reportRows = (rows, filters) => table(["Do‘kon", "Holat", "Mahsulot", "Bo‘sh joy", "Vaqt", ""],
     rows.map(row => `<tr><td><strong>${esc(row.store || "Do‘kon belgilanmagan")}</strong><small>${esc(row.author)}</small></td>
       <td>${reportTag(row.status)}</td><td>${count(row.products)}</td><td>${count(row.gaps)}</td>
-      <td>${esc(rastaDate(row.submitted || row.created))}</td><td>${link(reportUrl(row.id), "Ochish")}</td></tr>`).join(""));
+      <td>${esc(rastaDate(row.submitted || row.created))}</td><td>${link(reportUrl(row.id, filters), "Ochish")}</td></tr>`).join(""));
 
   async function dashboard(days = "30") {
     heading("Bosh panel", session.user.organization,
@@ -86,6 +100,8 @@
     const [stats, latest] = await Promise.all([rastaJson(`/api/overview?days=${days}`), rastaJson("/api/reports")]);
     if ($("days").value !== days) return;
     const recognition = stats.products ? Math.round(100 * stats.recognized / stats.products) + "%" : "—";
+    const range = {from: stats.trend[0].day, to: stats.trend.at(-1).day};
+    const drill = filter => reportsUrl(new URLSearchParams({...range, ...filter}));
     const max = Math.max(1, ...stats.trend.map(item => item.count));
     const chart = stats.trend.map(item => {
       const date = item.day.split("-").slice(1).reverse().join(".");
@@ -102,48 +118,94 @@
             <div class="trend-axis"><span>${stats.trend[0].day}</span><span>${stats.trend.at(-1).day}</span></div>`
             : empty("Faollik hali yo‘q", "Yuborilgan auditlar shu yerda paydo bo‘ladi.", "chart")}</section>
         <section class="card dashboard-panel"><div class="panel-heading"><div><h2>Audit holati</h2><p>Tanlangan davr</p></div></div>
-          ${[["submitted",stats.pending],["approved",stats.approved],["returned",stats.returned]].map(([status,value]) => `<div class="state-line">${reportTag(status)}<strong>${count(value)}</strong></div>`).join("")}
+          ${[["submitted",stats.pending],["approved",stats.approved],["returned",stats.returned]].map(([status,value]) => `<a class="state-line drill-link" href="${drill({status})}">${reportTag(status)}<strong>${count(value)} ${icon("arrow-right")}</strong></a>`).join("")}
           <div class="state-line"><span>Topilgan bo‘sh joylar</span><strong>${count(stats.gaps)}</strong></div></section>
       </div>
       ${stats.reports ? `<div class="dashboard-grid">
         <section class="card dashboard-panel"><div class="panel-heading"><h2>Do‘konlar kesimida</h2>${link("/stores","Do‘konlar")}</div>
-        ${table(["Do‘kon","Audit","Bo‘sh joy"], stats.store_activity.map(row => `<tr><td>${esc(row.name)}</td><td>${count(row.reports)}</td><td>${count(row.gaps)}</td></tr>`).join(""))}</section>
+        ${table(["Do‘kon","Audit","Bo‘sh joy"], stats.store_activity.map(row => `<tr><td><a class="table-drill" href="${drill({store_id:row.id})}">${esc(row.name)}</a></td><td>${count(row.reports)}</td><td>${count(row.gaps)}</td></tr>`).join(""))}</section>
         <section class="card dashboard-panel"><div class="panel-heading"><h2>Jamoa faolligi</h2>${link("/members","Xodimlar")}</div>
-        ${table(["Hisob","Audit","Tasdiqlangan"], stats.operator_activity.map(row => `<tr><td>${esc(row.username)}</td><td>${count(row.reports)}</td><td>${count(row.approved)}</td></tr>`).join(""))}</section>
+        ${table(["Hisob","Audit","Tasdiqlangan"], stats.operator_activity.map(row => `<tr><td><a class="table-drill" href="${drill({author_id:row.id})}">${esc(row.username)}</a></td><td>${count(row.reports)}</td><td>${count(row.approved)}</td></tr>`).join(""))}</section>
       </div>` : ""}
       <section class="card work-section"><div class="panel-heading"><div><h2>So‘nggi hisobotlar</h2><p>Korxona jamoasidan yuborilgan auditlar</p></div>${link("/reports", "Barchasi")}</div>
         ${latest.reports.length ? reportRows(latest.reports.slice(0,5)) : empty("Hisobotlar hali yo‘q", "Jamoa birinchi auditni yuborgach, uni shu yerda ko‘rasiz.")}</section>`;
   }
 
-  async function reports(filter = "", offset = 0) {
+  async function reports() {
     const id = queries.get("id");
     if (id) { await reportDetails(id); return; }
-    heading(session.user.role === "operator" ? "Mening hisobotlarim" : "Hisobotlar",
+    const manager = session.user.role === "org_admin";
+    const filters = reportFilters();
+    const offset = Number(queries.get("offset")) || 0;
+    const canExport = manager && filters.get("status") !== "draft";
+    heading(manager ? "Hisobotlar" : "Mening hisobotlarim",
       "Auditlarni oching va tekshiruv holatini kuzating.", link("/", "Yangi tahlil", true, "plus"));
-    const params = new URLSearchParams({offset: String(offset)});
-    if (filter) params.set("status", filter);
-    const data = await rastaJson("/api/reports?" + params);
+    const params = new URLSearchParams(filters);
+    params.set("offset", String(offset));
+    const [data, {stores}, {users}] = await Promise.all([
+      rastaJson("/api/reports?" + params), rastaJson("/api/stores"),
+      manager ? rastaJson("/api/members") : Promise.resolve({users: []})
+    ]);
+    const select = (label, name, defaultLabel, items) => `<label class="field"><span>${label}</span>
+      <select class="input" name="${name}"><option value="">${defaultLabel}</option>
+      ${items.map(([value,text]) => `<option value="${esc(value)}">${esc(text)}</option>`).join("")}</select></label>`;
+    const dateField = (label, name) => `<label class="field"><span>${label}</span><input class="input" name="${name}" type="date"></label>`;
+    const paged = nextOffset => reportsUrl(new URLSearchParams({...Object.fromEntries(filters), offset: nextOffset}));
     body.innerHTML = `<section class="card work-section">
-      <div class="panel-heading"><h2>Auditlar ro‘yxati</h2><label class="period-control"><span>Holat</span>
-      <select class="input" id="report-filter"><option value="">Yuborilgan barcha</option>${Object.entries(statusNames).map(([value,label]) =>
-        `<option value="${value}">${label}</option>`).join("")}</select></label></div>
-      ${data.reports.length ? reportRows(data.reports) : empty("Hisobotlar topilmadi", "Boshqa holatni tanlang yoki yangi tahlil yarating.")}
-      ${data.has_more || offset ? '<div class="pager"><button class="btn" id="back">Oldingi</button><button class="btn" id="more">Keyingi</button></div>' : ""}</section>`;
-    $("report-filter").value = filter;
-    $("report-filter").onchange = event => render(() => reports(event.target.value, 0));
-    if ($("more")) {
-      $("more").disabled = !data.has_more;
-      $("back").disabled = !offset;
-      $("more").onclick = () => render(() => reports(filter, offset + 50));
-      $("back").onclick = () => render(() => reports(filter, offset - 50));
+      <div class="panel-heading"><div><h2>Auditlar ro‘yxati</h2><p>${count(data.total)} ta natija</p></div>
+      ${canExport ? button("csv-export", "CSV yuklash", "download", false) : ""}</div>
+      <form class="report-filters" id="report-filters">
+        ${select("Holat", "status", "Barcha yuborilgan", Object.entries(statusNames))}
+        ${select("Do‘kon", "store_id", "Barcha do‘konlar", stores.map(store => [store.id, store.name]))}
+        ${manager ? select("Yuborgan", "author_id", "Barcha xodimlar", users.map(user => [user.id, user.username])) : ""}
+        ${dateField("Boshlanish", "from")}${dateField("Tugash", "to")}
+        <div class="filter-actions"><button class="btn primary" type="submit">${icon("search")} Filtrlash</button>
+          ${filters.size ? '<a class="btn ghost" href="/reports">Tozalash</a>' : ""}</div>
+      </form>
+      <div class="err" id="report-error" role="alert"></div>
+      ${data.reports.length ? reportRows(data.reports, filters) : empty("Hisobotlar topilmadi", "Filtrlarni o‘zgartiring yoki yangi tahlil yarating.")}
+      ${data.has_more || offset ? `<div class="pager">${offset ? link(paged(Math.max(0, offset-50)), "Oldingi") : ""}
+        ${data.has_more ? link(paged(offset+50), "Keyingi") : ""}</div>` : ""}</section>`;
+    const form = $("report-filters");
+    for (const [key,value] of filters) {
+      const control = form.elements.namedItem(key);
+      if (control) control.value = value;
     }
+    form.onsubmit = event => {
+      event.preventDefault();
+      const values = reportFilters(new FormData(form));
+      if (values.has("from") && values.has("to") && values.get("from") > values.get("to")) {
+        $("report-error").textContent = "Boshlanish sanasi tugash sanasidan keyin bo‘lishi mumkin emas.";
+        return;
+      }
+      location.assign(reportsUrl(values));
+    };
+    if (canExport) $("csv-export").onclick = () => exportReports(filters);
+  }
+  async function exportReports(filters) {
+    const control = $("csv-export");
+    control.disabled = true;
+    $("report-error").textContent = "";
+    try {
+      const response = await rastaFetch("/api/reports/export.csv?" + filters);
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(typeof error.detail === "string" ? error.detail : "CSV yuklanmadi.");
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const anchor = Object.assign(document.createElement("a"), {href: url, download: "rasta-auditlar.csv"});
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      $("report-error").textContent = error.message;
+    } finally { control.disabled = false; }
   }
   async function reportDetails(id) {
     const endpoint = "/api/reports/" + encodeURIComponent(id);
     const report = await rastaJson(endpoint);
     const result = report.result, summary = result.summary;
     heading(report.store || "Javon auditi", `${report.author} · ${rastaDate(report.submitted || report.created)}`,
-      link("/reports", "Hisobotlar"));
+      link(reportsUrl(reportFilters()), "Hisobotlar"));
     const showReview = session.user.role === "org_admin" && report.status === "submitted";
     const canSend = report.author === session.user.username && ["draft", "returned"].includes(report.status);
     body.innerHTML = `<div class="detail-grid">

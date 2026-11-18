@@ -70,6 +70,7 @@ python -m pytest tests -q                 # 58 ta test
 - **Super admin** (`/organizations`) korxonalar va korxona adminlari hisoblarini boshqaradi.
 - **Korxona admini** (`/dashboard`) o‘z korxonasi statistikasini ko‘radi, katalog (`/admin`), do‘konlar (`/stores`) va operatorlar (`/members`)ni boshqaradi hamda auditlarni ko‘rib chiqadi.
 - **Operator** (`/`) javon rasmini yuklaydi, zona tanlaydi, AI natijasini ko‘radi va do‘kon bilan birga korxonasiga yuboradi. O‘z auditlari va admin izohlari `/reports` sahifasida.
+- **Hisobotlar** (`/reports`) holat, do‘kon va Toshkent vaqti bo‘yicha sana oralig‘ida filtrlanadi. Korxona admini yuborgan xodim bo‘yicha ham qidiradi va 10 000 tagacha yuborilgan auditni CSV qilib yuklaydi. Bosh paneldagi holat, do‘kon va xodim havolalari shu filtrlarga olib boradi.
 - **Hisob** (`/account`) joriy parolni almashtiradi va eski sessiyalarni yakunlaydi.
 
 Docker uchta xizmatni ishga tushiradi. **Frontend** Nginx orqali saytni beradi. **Backend** FastAPI orqali hisoblar, katalog, javon geometriyasi va KPI’larni boshqaradi. **AI** xizmati YOLO deteksiyasi va embeddinglarni hisoblaydi. Brauzer faqat frontend portiga ulanadi.

@@ -32,6 +32,15 @@
 .state-line { display: flex; justify-content: space-between; gap: 14px; padding: 11px 0; border-bottom: 1px solid var(--border); color: var(--ink-2); font-size: 14px; }
 .state-line:last-child { border-bottom: 0; }
 .state-line strong { color: var(--ink); flex: none; }
+.state-line strong > svg { width: 15px; height: 15px; vertical-align: -3px; margin-left: 6px; }
+.drill-link { text-decoration: none; }
+.table-drill { color: var(--accent); text-underline-offset: 3px; }
+.drill-link:hover, .table-drill:hover { color: var(--accent); }
+.report-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 145px), 1fr));
+  align-items: end; gap: 10px; padding: 12px; border-radius: 10px; background: var(--surface-2); margin-bottom: 12px; }
+.report-filters .field { margin: 0; padding: 0; min-width: 0; }
+.report-filters .input { width: 100%; min-width: 0; }
+.filter-actions { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .trend-chart { height: 168px; display: flex; align-items: stretch; gap: clamp(1px, .25vw, 6px); padding: 10px 6px 0;
   background: repeating-linear-gradient(to top, var(--border) 0 1px, transparent 1px 25%); }
 .trend-col { flex: 1; min-width: 1px; position: relative; }
