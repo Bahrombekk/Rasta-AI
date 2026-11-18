@@ -215,6 +215,13 @@ class RastaPipeline:
                         if d.match and d.match.is_known and d.match.brand} or None
         # Klasterlashga faqat haqiqatan noma'lumlar kiradi (brend darajasidagilar emas)
         kpi = compute_kpi(detections, gaps, num_rows, brand_of=brand_of)
+        oos_status = "estimated"
+        if not gaps and len(detections) <= num_rows:
+            oos_status = "insufficient_products"
+        elif (cfg.get("oos.require_frontal", True) and not assume_frontal
+              and scene_support is not None and scene_support < cfg.get("oos.frontal_min_support", 0.8)):
+            oos_status = "limited_scene"
+        kpi["oos"]["status"] = oos_status
         kpi["oos"]["num_suspect"] = len(suspects)
         kpi["oos"]["num_divider"] = len(dividers)
         if roi_mask is not None:

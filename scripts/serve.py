@@ -30,8 +30,7 @@ def main():
     application = web.create_app(cfg, public=public)
     print("[+] Modellar yuklanmoqda (birinchi marta ~10-20 s)...")
     web.get_pipe()
-    print(f"[✓] Tayyor: http://{args.host}:{args.port}   admin: http://{args.host}:{args.port}/admin")
-    uvicorn.run(application, host=args.host, port=args.port, log_level="warning")
+    uvicorn.run(application, host=args.host, port=args.port, access_log=False)
 
 
 if __name__ == "__main__":

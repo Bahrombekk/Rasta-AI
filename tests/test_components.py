@@ -234,6 +234,21 @@ def test_context_preserves_brand_and_negative_veto():
     assert match.level == "sku"
 
 
+def test_no_detections_leave_oos_unestimated():
+    from types import SimpleNamespace
+
+    from rasta.config import Config
+    from rasta.pipeline import RastaPipeline
+
+    pipe = RastaPipeline.__new__(RastaPipeline)
+    pipe.cfg = Config({})
+    pipe.detector = SimpleNamespace(detect=lambda image: [])
+    image = np.zeros((30, 50, 3), dtype=np.uint8)
+    result = pipe.analyze_image(image, roi_mask=np.ones(image.shape[:2], dtype=bool))
+    assert result.kpi["oos"]["status"] == "insufficient_products"
+    assert result.kpi["roi_fill_pct"] == 0.0
+
+
 # ---- klasterlash -----------------------------------------------------------
 
 def test_clustering_separates_color_groups():

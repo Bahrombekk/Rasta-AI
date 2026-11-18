@@ -1,7 +1,9 @@
 """Veb-ilova API testi — og'ir modellarsiz (soxta pipeline + xotiradagi katalog)."""
 import io
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 
 import numpy as np
 import pytest
@@ -14,7 +16,7 @@ from PIL import Image  # noqa: E402
 
 from rasta.catalog import SkuCatalog  # noqa: E402
 from rasta.kpi import compute_kpi  # noqa: E402
-from rasta.types import AnalysisResult, Box, Detection, Match  # noqa: E402
+from rasta.types import AnalysisResult, Box, Detection, Gap, Match  # noqa: E402
 from rasta.web import app as web  # noqa: E402
 
 
@@ -111,6 +113,7 @@ def test_analyze_whole_and_zone(client):
     assert d["detections"][1]["s"] is None and d["roi"] is None
     s = d["summary"]
     assert s["num_products"] == 2 and s["num_known"] == 1 and s["num_unknown"] == 1
+    assert d["suspect_gaps"] == [] and d["divider_gaps"] == []
     assert s["products"][0]["name"] == "Cola" and s["products"][0]["color"].startswith("#")
     assert 0 <= s["unknown_share_pct"] <= 100
     r2 = client.post("/api/analyze", files={"image": ("s.jpg", jpg(), "image/jpeg")},
@@ -121,6 +124,38 @@ def test_analyze_whole_and_zone(client):
     bad = client.post("/api/analyze", files={"image": ("s.jpg", jpg(), "image/jpeg")},
                       data={"roi": "nonsense"})
     assert bad.status_code == 400
+
+
+def test_analysis_keeps_uncertain_gaps_out_of_oos_total(client, monkeypatch):
+    pipe = web.State.pipe
+    result = pipe._result(np.zeros((100, 120, 3), dtype=np.uint8))
+    result.suspects = [Gap(0, 40, 10, 50, 90, 10, 1, status="suspect")]
+    result.dividers = [Gap(0, 90, 10, 110, 90, 20, 1, status="divider")]
+    result.kpi["oos"]["status"] = "limited_scene"
+    monkeypatch.setattr(pipe, "analyze_image", lambda img: result)
+
+    data = client.post("/api/analyze", files={"image": ("s.jpg", jpg(), "image/jpeg")}).json()
+    assert data["suspect_gaps"] == [[40, 10, 50, 90]]
+    assert data["divider_gaps"] == [[90, 10, 110, 90]]
+    assert data["gaps"] == [] and data["summary"]["oos_facings"] == 0
+    assert data["summary"]["oos_status"] == "limited_scene"
+
+
+def test_parallel_teach_requests_create_only_one_sku(client):
+    start = Barrier(2, timeout=5)
+
+    def teach():
+        start.wait()
+        return client.post(
+            "/api/teach", data={"name": "Cola", "boxes": "[[10,10,40,75]]"},
+            files={"image": ("s.jpg", jpg(), "image/jpeg")},
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(teach) for _ in range(2)]
+        assert sorted(future.result().status_code for future in futures) == [200, 409]
+    images = client.get("/api/products/cola").json()["images"]
+    assert len(images) == 1 and images[0]["shelf"] is True
 
 
 def test_reindex_endpoint(client):

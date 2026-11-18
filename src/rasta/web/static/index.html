@@ -47,6 +47,7 @@
         <button class="btn ghost" id="newBtn" data-icon="refresh">Boshqa rasm</button>
       </div>
       <div class="stage"><canvas id="cv"></canvas></div>
+      <ul class="gap-legend" id="gapLegend" aria-label="Bo‘sh joy belgilari" hidden></ul>
     </section>
 
     <aside class="side">
@@ -106,6 +107,11 @@
   let file = null, img = null, pts = [], drawing = false, closed = false;
   let R = null, showBoxes = true, hl = null, analysis = null, pendingImage = null;
   const sel = new Set();          // o'rgatish uchun tanlangan qutilar
+  const gapLayers = [
+    { key: "gaps", label: "Bo‘sh joy", color: "#dc2626", dash: [6, 4] },
+    { key: "suspect_gaps", label: "Tekshirish kerak", color: "#d97706", dash: [5, 3] },
+    { key: "divider_gaps", label: "Ehtimoliy bo‘linma", color: "#2563eb", dash: [3, 3] },
+  ];
 
   // ---------- rasm ----------
   function pick(f) {
@@ -168,15 +174,23 @@
       ctx.closePath(); ctx.fill("evenodd"); ctx.restore();
     }
     if (R && showBoxes) {
-      const f = R.f;
-      R.gaps.forEach(([x1, y1, x2, y2]) => {
-        ctx.fillStyle = hl ? "rgba(220,38,38,.12)" : "rgba(220,38,38,.22)";
-        ctx.fillRect(x1 * f, y1 * f, (x2 - x1) * f, (y2 - y1) * f);
-        ctx.setLineDash([6 * s, 4 * s]); ctx.lineWidth = lw; ctx.strokeStyle = "#dc2626";
-        ctx.strokeRect(x1 * f, y1 * f, (x2 - x1) * f, (y2 - y1) * f); ctx.setLineDash([]);
-      });
+      const [scaleX, scaleY] = R.scale;
+      const scaledBox = box => box.map((v, i) => v * (i % 2 ? scaleY : scaleX));
+      ctx.save();
+      ctx.lineWidth = lw;
+      for (const { key, color, dash } of gapLayers) {
+        ctx.setLineDash(dash.map(v => v * s));
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color + (hl ? "18" : "30");
+        for (const b of R[key] || []) {
+          const [x1, y1, x2, y2] = scaledBox(b);
+          ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+          ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+        }
+      }
+      ctx.restore();
       R.detections.forEach(d => {
-        const [x1, y1, x2, y2] = d.b.map(v => v * f);
+        const [x1, y1, x2, y2] = scaledBox(d.b);
         const col = d.s ? R.colors[d.s] : null;
         const on = !hl || d.s === hl;
         if (!col) {
@@ -189,7 +203,7 @@
         ctx.strokeRect(x1, y1, x2 - x1, y2 - y1); ctx.globalAlpha = 1;
       });
       sel.forEach(i => {
-        const [x1, y1, x2, y2] = R.detections[i].b.map(v => v * f);
+        const [x1, y1, x2, y2] = scaledBox(R.detections[i].b);
         ctx.fillStyle = "rgba(16,185,129,.28)"; ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
         ctx.lineWidth = lw * 2; ctx.strokeStyle = "#10b981"; ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
       });
@@ -218,6 +232,7 @@
     analysis?.abort();
     sel.clear();
     $("teach").hidden = true;
+    $("gapLegend").hidden = true;
     if (R) { R = null; hl = null; $("res").hidden = true; $("pre").hidden = false; $("boxesBtn").hidden = true; }
   }
   $("zoneBtn").onclick = () => { resetResult(); drawing = true; pts = []; closed = false; ui(); draw(); };
@@ -226,7 +241,7 @@
     if (!drawing) {
       if (!R || !showBoxes) return;
       const r = cv.getBoundingClientRect(), s = k();
-      const x = (e.clientX - r.left) * s / R.f, y = (e.clientY - r.top) * s / R.f;
+      const x = (e.clientX - r.left) * s / R.scale[0], y = (e.clientY - r.top) * s / R.scale[1];
       let best = -1, area = Infinity;
       R.detections.forEach((d, i) => {
         const [x1, y1, x2, y2] = d.b, a = (x2 - x1) * (y2 - y1);
@@ -243,7 +258,12 @@
     else pts.push(p);
     ui(); draw();
   });
-  $("boxesBtn").onclick = () => { showBoxes = !showBoxes; $("boxesBtn").classList.toggle("on", showBoxes); draw(); };
+  $("boxesBtn").onclick = () => {
+    showBoxes = !showBoxes;
+    $("boxesBtn").classList.toggle("on", showBoxes);
+    $("gapLegend").hidden = !showBoxes || !$("gapLegend").children.length;
+    draw();
+  };
 
   // ---------- tahlil ----------
   async function analyze(btn) {
@@ -310,10 +330,15 @@
   }
   function show(d) {
     const s = d.summary;
-    const f = cv.width / d.size[0];
-    R = { ...d, data: d, f, roiPts: d.roi ? d.roi.map(([x, y]) => [x * f, y * f]) : null,
+    const scale = [cv.width / d.size[0], cv.height / d.size[1]];
+    R = { ...d, data: d, scale, roiPts: d.roi?.map(([x, y]) => [x * scale[0], y * scale[1]]),
           colors: Object.fromEntries(s.products.map(p => [p.sku_id, p.color])) };
     hl = null; showBoxes = true; $("boxesBtn").classList.add("on");
+    $("gapLegend").innerHTML = gapLayers
+      .filter(({ key }) => d[key]?.length)
+      .map(({ key, color, label }) => `<li><span style="--gap-color:${color}"></span>${label} · ${d[key].length}</li>`)
+      .join("");
+    $("gapLegend").hidden = !$("gapLegend").children.length;
     sel.clear(); teachUi();
 
     const tiles = [
@@ -322,9 +347,10 @@
           `<div class="meter"><i style="width:${s.recognition_rate}%"></i></div>`, s.num_products && s.recognition_rate >= 80 ? "good" : ""),
     ];
     if (s.fill_pct !== null && s.fill_pct !== undefined)
-      tiles.push(kpi("layers", "To'ldirilganlik", `${Math.round(s.fill_pct)}<small>%</small>`,
+      tiles.push(kpi("layers", "Qatorlar bandligi", `${Math.round(s.fill_pct)}<small>%</small>`,
         `<div class="meter"><i style="width:${s.fill_pct}%;${s.fill_pct < 50 ? "background:var(--danger)" : ""}"></i></div>`, s.fill_pct < 50 ? "bad" : ""));
-    tiles.push(kpi("empty", "Bo'sh joy", s.oos_facings, `<div class="meter"><i style="width:${s.oos_facings ? 100 : 0}%;background:var(--danger)"></i></div>`, s.oos_facings ? "bad" : ""));
+    const oosAvailable = s.oos_status === "estimated" || s.oos_gaps > 0;
+    tiles.push(kpi("empty", "Taxminiy bo‘sh o‘rin", oosAvailable ? s.oos_facings : "—", "", s.oos_facings ? "bad" : ""));
     $("kpis").innerHTML = tiles.join("");
 
     const ps = s.products;
@@ -360,9 +386,10 @@
     });
 
     const notes = [["poly", "Xato tanilgan yoki tanilmagan mahsulotni rasmda <b>bosib tanlang</b> va to'g'ri nomini bering — tizim javondagi shu ko'rinishdan o'rganadi."]];
-    if (s.num_unknown > 0) notes.push(["info", `${s.num_unknown} ta mahsulot katalogda yo'q — rasmda oq ingichka ramka. Ularni <a href="/admin">Mahsulotlar</a> bo'limida qo'shish mumkin.`]);
-    if (s.oos_facings > 0) notes.push(["alert", `${s.oos_gaps} ta bo'sh oraliq (~${s.oos_facings} ta mahsulot o'rni) — rasmda qizil punktir.`, "warn"]);
-    if (s.frontal === false) notes.push(["alert", "Rasm qiya yoki uzoqdan olingan — bo'sh joylar hisoblanmadi. Javonni to'g'ridan suratga oling yoki zona belgilang.", "warn"]);
+    if (s.num_unknown > 0) notes.push(["info", `${s.num_unknown} ta mahsulotning SKU’si aniqlanmadi. Ularni <a href="/admin">Mahsulotlar</a> bo‘limida katalogga qo‘shish mumkin.`]);
+    if (s.oos_status === "limited_scene") notes.push(["alert", "Bo‘sh o‘rinlarni aniqroq baholash uchun javonni old tomondan suratga oling yoki zona belgilang.", "warn"]);
+    if (s.oos_status === "insufficient_products") notes.push(["info", "Bo‘sh o‘rinlar bahosi uchun kamida bitta qatorda ikki mahsulot aniqlanishi kerak."]);
+    if (s.area_fill_pct != null) notes.push(["layers", `Belgilangan maydonning ${s.area_fill_pct}% qismida mahsulot aniqlandi.`]);
     if (s.row_fill && s.row_fill.length) notes.push(["layers", "Qatorlar bo'yicha to'ldirilganlik (yuqoridan): " + s.row_fill.map(v => Math.round(v) + "%").join(" · ")]);
     $("notes").innerHTML = notes.map(([ic, t, c]) => `<div class="note ${c || ""}">${icon(ic)}<div>${t}</div></div>`).join("");
 
