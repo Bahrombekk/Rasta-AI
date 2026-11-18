@@ -19,7 +19,7 @@
       <div class="login-form" aria-labelledby="login-title">
         <h1 id="login-title">Hisobga kirish</h1>
         <p>Jamoangiz bergan login va parolni kiriting.</p>
-        <form id="login-form">
+        <form id="login-form" method="post">
           <div class="login-field">
             <label for="login-name">Login</label>
             <input class="input" id="login-name" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Loginingiz" required maxlength="64" aria-describedby="error">
@@ -32,7 +32,7 @@
             </div>
           </div>
           <div class="login-error" id="error" role="alert" hidden></div>
-          <button class="btn primary lg block login-submit" type="submit">
+          <button class="btn primary lg block login-submit" type="submit" disabled>
             <span id="submit-text">Kirish</span><span class="submit-icon" data-icon="arrow-right"></span>
           </button>
         </form>

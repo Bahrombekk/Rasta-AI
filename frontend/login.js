@@ -42,3 +42,4 @@ loginForm.onsubmit = async event => {
     submitText.textContent = "Kirish";
   }
 };
+loginButton.disabled = false;

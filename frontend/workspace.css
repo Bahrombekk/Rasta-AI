@@ -88,7 +88,12 @@
 @media (max-width: 700px) {
   .workspace-shell { gap: 6px; }
   .shell-context { display: none; }
-  .workspace-shell .shell-links a { justify-content: flex-start; }
+  .workspace-shell .shell-links {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible;
+  }
+  .workspace-shell[data-role="org_admin"] .shell-links { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .workspace-shell[data-role="super_admin"] .shell-links { grid-template-columns: 1fr; }
+  .workspace-shell .shell-links a { min-width: 0; justify-content: flex-start; font-size: 11px; white-space: nowrap; }
   .shell + .workspace-page { padding: 22px 13px 42px; }
   .work-heading { margin-bottom: 17px; }
   .dashboard-grid, .detail-grid { grid-template-columns: 1fr; }

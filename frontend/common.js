@@ -48,9 +48,16 @@
     .catch(() => ({ unavailable: true, user: null }));
   window.rastaHome = user => ({super_admin: "/organizations", org_admin: "/dashboard"})[user?.role] || "/";
   window.rastaRole = role => ({super_admin: "Super admin", org_admin: "Korxona admini", operator: "Operator"})[role] || "Admin";
-  window.rastaDate = seconds => seconds ? new Intl.DateTimeFormat("uz-UZ", {
-    dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Tashkent"
-  }).format(new Date(seconds * 1000)) : "—";
+  const dateFormat = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+    hourCycle: "h23", timeZone: "Asia/Tashkent"
+  });
+  window.rastaDate = seconds => {
+    if (!seconds) return "—";
+    const { day, month, year, hour, minute } = Object.fromEntries(
+      dateFormat.formatToParts(new Date(seconds * 1000)).map(part => [part.type, part.value]));
+    return `${day}.${month}.${year}, ${hour}:${minute}`;
+  };
   window.rastaFetch = async (url, options = {}) => {
     const headers = new Headers(options.headers);
     if (options.method && options.method.toUpperCase() !== "GET") headers.set("X-Rasta-Request", "1");
@@ -127,6 +134,7 @@
         `<a href="${href}" ${key === page ? 'aria-current="page"' : ''}>${icon(glyph)}<span>${label}</span></a>`).join("");
       if (session.workspaces) {
         el.classList.add("workspace-shell");
+        el.dataset.role = role;
         el.querySelector(".logo").href = rastaHome(session.user);
         const context = el.querySelector(".shell-context");
         context.querySelector("span:last-child").textContent = session.user.organization || "Platforma boshqaruvi";
