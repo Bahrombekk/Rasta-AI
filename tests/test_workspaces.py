@@ -83,6 +83,24 @@ def test_organization_boundaries_and_shelf_review(tmp_path, monkeypatch):
         ]
         assert admin.get("/api/overview?days=7").json()["approved"] == 1
         assert other.get("/api/overview?days=7").json()["reports"] == 0
+        platform = root.get("/api/platform/overview?days=7").json()
+        assert platform["organizations"] == {"total": 2, "active": 2}
+        assert platform["members"] == {"total": 3, "active": 3, "admins": 2, "operators": 1}
+        assert platform["stores"] == 2
+        assert platform["audits"]["approved"] == 1 and platform["audits"]["open_queue"] == 0
+        assert platform["audits"]["products"] == 2
+        assert len(platform["trend"]) == 7 and sum(item["count"] for item in platform["trend"]) == 1
+        assert [row["id"] for row in platform["activity"]] == [1]
+        assert platform["events"][0]["action"] == "organization_created"
+        assert platform["events"][0]["actor"] == "root-admin"
+        assert INITIAL not in str(platform)
+        status = root.get(f"/api/organizations/{org_id}/overview?days=30").json()
+        assert status["organization"]["name"] == "Another Company"
+        assert status["audits"]["total"] == 0 and status["members"]["admins"] == 1
+        assert status["audits"]["review_seconds"] is None
+        assert admin.get("/api/platform/overview").status_code == 403
+        assert operator.get(f"/api/organizations/{org_id}/overview").status_code == 403
+        assert root.get("/api/organizations/999999/overview").status_code == 404
         report_id = report.rsplit("/", 1)[1]
         before_midnight_utc = int(datetime(2025, 12, 31, 19, tzinfo=timezone.utc).timestamp())
         with spaces.db() as db:
@@ -110,3 +128,6 @@ def test_organization_boundaries_and_shelf_review(tmp_path, monkeypatch):
         assert root.patch(f"/api/organizations/{org_id}", headers=HEADERS,
                           json={"name": "Another Company", "active": False}).status_code == 200
         assert other.get("/api/products").status_code == 401
+        inactive = root.get(f"/api/organizations/{org_id}/overview").json()
+        assert inactive["members"]["total"] == 1 and inactive["members"]["active"] == 0
+        assert inactive["events"][0]["action"] == "organization_suspended"

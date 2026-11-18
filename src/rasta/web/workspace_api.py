@@ -11,6 +11,7 @@ from .session_api import AdminUpdate, Login
 from .workspaces import TASHKENT
 
 ReportStatus = Literal["draft", "submitted", "approved", "returned"]
+Period = Literal["7", "30", "90"]
 CSV_LIMIT = 10_000
 
 
@@ -79,6 +80,19 @@ def validate(action, *args):
 def router(workspaces):
     api = APIRouter(prefix="/api")
 
+    @api.get("/platform/overview")
+    def platform_overview(request: Request, days: Period = "30"):
+        require(request, "super_admin")
+        return workspaces.platform_overview(int(days))
+
+    @api.get("/organizations/{org_id}/overview")
+    def organization_overview(request: Request, org_id: int, days: Period = "30"):
+        require(request, "super_admin")
+        overview = workspaces.platform_overview(int(days), org_id)
+        if overview is None:
+            raise HTTPException(404, "Korxona topilmadi.")
+        return overview
+
     @api.get("/organizations")
     def organizations(request: Request):
         require(request, "super_admin")
@@ -86,13 +100,13 @@ def router(workspaces):
 
     @api.post("/organizations", status_code=201)
     def create_org(request: Request, body: Organization):
-        require(request, "super_admin")
-        return validate(workspaces.create_org, body.name, body.username, body.password)
+        actor = require(request, "super_admin")
+        return validate(workspaces.create_org, body.name, body.username, body.password, actor["id"])
 
     @api.patch("/organizations/{org_id}")
     def update_org(request: Request, org_id: int, body: OrganizationUpdate):
-        require(request, "super_admin")
-        if not validate(workspaces.update_org, org_id, body.name, body.active):
+        actor = require(request, "super_admin")
+        if not validate(workspaces.update_org, org_id, body.name, body.active, actor["id"]):
             raise HTTPException(404, "Korxona topilmadi.")
         return {"ok": True}
 
@@ -103,13 +117,13 @@ def router(workspaces):
 
     @api.post("/organizations/{org_id}/members", status_code=201)
     def add_org_admin(request: Request, org_id: int, body: Login):
-        require(request, "super_admin")
-        return validate(workspaces.create_member, org_id, body.username, body.password, "org_admin")
+        actor = require(request, "super_admin")
+        return validate(workspaces.create_member, org_id, body.username, body.password, "org_admin", actor["id"])
 
     @api.patch("/organizations/{org_id}/members/{user_id}")
     def edit_org_admin(request: Request, org_id: int, user_id: int, body: AdminUpdate):
-        require(request, "super_admin")
-        if not validate(workspaces.update_member, org_id, user_id, "org_admin", body.active, body.password):
+        actor = require(request, "super_admin")
+        if not validate(workspaces.update_member, org_id, user_id, "org_admin", body.active, body.password, actor["id"]):
             raise HTTPException(404, "Korxona admini topilmadi.")
         return {"ok": True}
 
@@ -148,7 +162,7 @@ def router(workspaces):
         return {"ok": True}
 
     @api.get("/overview")
-    def overview(request: Request, days: Literal["7", "30", "90"] = "30"):
+    def overview(request: Request, days: Period = "30"):
         return workspaces.overview(require(request, "org_admin", "operator"), int(days))
 
     @api.get("/reports")

@@ -338,7 +338,7 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
 
         for path, filename in {"/": "index.html", "/admin": "admin.html", "/login": "login.html",
                                "/team": "team.html", "/account": "account.html", "/dashboard": "workspace.html",
-                               "/reports": "workspace.html", "/organizations": "workspace.html",
+                               "/reports": "workspace.html", "/organizations": "workspace.html", "/platform": "workspace.html",
                                "/members": "workspace.html", "/stores": "workspace.html"}.items():
             app.add_api_route(path, endpoint(filename), methods=["GET"])
 

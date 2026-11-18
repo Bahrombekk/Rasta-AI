@@ -67,7 +67,7 @@ python -m pytest tests -q                 # 58 ta test
 
 ## Veb-ilova
 
-- **Super admin** (`/organizations`) korxonalar va korxona adminlari hisoblarini boshqaradi.
+- **Super admin** platforma statistikasi (`/platform`) va korxonalarni (`/organizations`) boshqaradi. Platforma hamda har bir korxona uchun 7, 30 va 90 kunlik audit statistikasi, tekshiruv navbati va boshqaruv tarixi mavjud.
 - **Korxona admini** (`/dashboard`) o‘z korxonasi statistikasini ko‘radi, katalog (`/admin`), do‘konlar (`/stores`) va operatorlar (`/members`)ni boshqaradi hamda auditlarni ko‘rib chiqadi.
 - **Operator** (`/`) javon rasmini yuklaydi, zona tanlaydi, AI natijasini ko‘radi va do‘kon bilan birga korxonasiga yuboradi. O‘z auditlari va admin izohlari `/reports` sahifasida.
 - **Hisobotlar** (`/reports`) holat, do‘kon va Toshkent vaqti bo‘yicha sana oralig‘ida filtrlanadi. Korxona admini yuborgan xodim bo‘yicha ham qidiradi va 10 000 tagacha yuborilgan auditni CSV qilib yuklaydi. Bosh paneldagi holat, do‘kon va xodim havolalari shu filtrlarga olib boradi.

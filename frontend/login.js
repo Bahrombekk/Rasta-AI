@@ -6,7 +6,7 @@ const passwordInput = document.getElementById("login-password");
 const togglePassword = document.getElementById("toggle-password");
 const next = new URLSearchParams(location.search).get("next");
 function target(session) {
-  return ["/", "/admin", "/team", "/account", "/organizations", "/dashboard", "/reports", "/members", "/stores"].includes(next)
+  return ["/", "/admin", "/team", "/account", "/platform", "/organizations", "/dashboard", "/reports", "/members", "/stores"].includes(next)
     ? next : session.workspaces ? rastaHome(session.user) : "/";
 }
 

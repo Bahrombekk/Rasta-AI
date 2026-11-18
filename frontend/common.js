@@ -49,7 +49,7 @@
   window.rastaSession = fetch("/api/session", { cache: "no-store" })
     .then(r => { if (!r.ok) throw new Error(); return r.json(); })
     .catch(() => ({ unavailable: true, user: null }));
-  window.rastaHome = user => ({super_admin: "/organizations", org_admin: "/dashboard"})[user?.role] || "/";
+  window.rastaHome = user => ({super_admin: "/platform", org_admin: "/dashboard"})[user?.role] || "/";
   window.rastaRole = role => ({super_admin: "Super admin", org_admin: "Korxona admini", operator: "Operator"})[role] || "Admin";
   const dateFormat = new Intl.DateTimeFormat("en-GB", {
     day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
@@ -91,6 +91,7 @@
       ["catalog", "/admin", "box", "Katalog"],
       ["team", "/team", "users", "Jamoa"],
       ["organizations", "/organizations", "building", "Korxonalar"],
+      ["platform", "/platform", "chart", "Platforma statistikasi"],
       ["dashboard", "/dashboard", "chart", "Bosh panel"],
       ["reports", "/reports", "report", "Hisobotlar"],
       ["stores", "/stores", "store", "Do‘konlar"],
@@ -124,7 +125,7 @@
       if (session.enabled && !session.user) { location.replace(loginUrl()); return; }
       const role = session.user?.role;
       const menu = session.workspaces
-        ? ({super_admin: ["organizations"], org_admin: ["dashboard","analysis","reports","catalog","stores","members"],
+        ? ({super_admin: ["platform","organizations"], org_admin: ["dashboard","analysis","reports","catalog","stores","members"],
             operator: ["analysis","reports"]})[role] || []
         : ["analysis", "catalog", ...(role === "super_admin" ? ["team"] : [])];
       if (session.workspaces && page !== "account" && !menu.includes(page)) {

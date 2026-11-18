@@ -86,6 +86,31 @@
   const metric = (label, value, glyph, tone = "green", detail = "") => `<article class="card work-metric">
     <span class="metric-icon ${tone}">${icon(glyph)}</span><span class="metric-label">${label}</span>
     <strong>${value}</strong>${detail ? `<small class="metric-detail">${detail}</small>` : ""}</article>`;
+  const periodLabel = '<label class="period-control"><span>Davr</span><select class="input" id="days"><option value="7">7 kun</option><option value="30">30 kun</option><option value="90">90 kun</option></select></label>';
+  function bindPeriod(days, refresh) {
+    $("days").value = days;
+    $("days").onchange = event => {
+      const next = event.target.value;
+      const url = new URL(location.href);
+      url.searchParams.set("days", next);
+      history.replaceState(null, "", url);
+      render(() => refresh(next));
+    };
+  }
+  function trendPanel(trend, total, action = "") {
+    const max = Math.ceil(Math.max(1, ...trend.map(item => item.count)) / 4) * 4;
+    const chart = trend.map(item => {
+      const date = item.day.split("-").slice(1).reverse().join(".");
+      return `<div class="trend-col" title="${date} · ${count(item.count)} ta"><i style="--value:${100 * item.count / max}%"></i></div>`;
+    }).join("");
+    return `<section class="card dashboard-panel"><div class="panel-heading"><div><h2>Audit faolligi</h2>
+      <p>Kunlik hisobotlar · Toshkent vaqti</p></div>${action}</div>
+      ${total ? `<div class="chart-frame">
+        <div class="chart-ticks" aria-hidden="true">${[max, max*0.75, max*0.5, max*0.25, 0].map(tick => `<span>${count(tick)}</span>`).join("")}</div>
+        <div class="trend-chart" role="img" aria-label="Davr ichida ${count(total)} ta audit yuborilgan">${chart}</div>
+        <div class="trend-axis"><span>${trend[0].day}</span><span>${trend.at(-1).day}</span></div></div>`
+        : empty("Faollik hali yo‘q", "Yuborilgan auditlar shu yerda paydo bo‘ladi.", "chart")}</section>`;
+  }
   const table = (labels, rows) => `<div class="work-table-wrap"><table class="work-table">
     <thead><tr>${labels.map(label => `<th scope="col">${label}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>`;
   const reportRows = (rows, filters) => {
@@ -102,23 +127,14 @@
     return `<div class="desktop-audits">${desktop}</div><div class="mobile-audits">${mobile}</div>`;
   };
 
-  async function dashboard(days = "30") {
-    heading("Bosh panel", session.user.organization,
-      '<label class="period-control"><span>Davr</span><select class="input" id="days"><option value="7">7 kun</option><option value="30">30 kun</option><option value="90">90 kun</option></select></label>'
-      + link("/", "Yangi tahlil", true, "plus"));
-    $("days").value = days;
-    $("days").onchange = event => render(() => dashboard(event.target.value));
+  async function dashboard(days = requestedDays()) {
+    heading("Bosh panel", session.user.organization, periodLabel + link("/", "Yangi tahlil", true, "plus"));
+    bindPeriod(days, dashboard);
     const [stats, latest] = await Promise.all([rastaJson(`/api/overview?days=${days}`), rastaJson("/api/reports")]);
     if ($("days").value !== days) return;
     const recognition = stats.products ? Math.round(100 * stats.recognized / stats.products) + "%" : "—";
     const range = {from: stats.trend[0].day, to: stats.trend.at(-1).day};
     const drill = filter => reportsUrl(new URLSearchParams({...range, ...filter}));
-    const peak = Math.max(1, ...stats.trend.map(item => item.count));
-    const max = Math.ceil(peak / 4) * 4;
-    const chart = stats.trend.map(item => {
-      const date = item.day.split("-").slice(1).reverse().join(".");
-      return `<div class="trend-col" title="${date} · ${count(item.count)} ta"><i style="--value:${100 * item.count / max}%"></i></div>`;
-    }).join("");
     const statuses = [["submitted",stats.pending],["approved",stats.approved],["returned",stats.returned]];
     body.innerHTML = `<div class="work-metrics">
       ${metric("Kelgan auditlar", count(stats.reports), "report", "green", `Oxirgi ${days} kun`)}
@@ -126,13 +142,7 @@
       ${metric("Kuzatilgan do‘konlar", count(stats.stores), "store", "blue")}
       ${metric("SKU tanish", recognition, "scan", "violet", stats.products ? `${count(stats.recognized)} / ${count(stats.products)} mahsulot` : "")}</div>
       <div class="dashboard-grid">
-        <section class="card dashboard-panel"><div class="panel-heading"><div><h2>Audit faolligi</h2><p>Kunlik hisobotlar · Toshkent vaqti</p></div>
-          ${link(drill({}), "Auditlarni ko‘rish", false, "arrow-right")}</div>
-          ${stats.reports ? `<div class="chart-frame">
-            <div class="chart-ticks" aria-hidden="true">${[max, max*0.75, max*0.5, max*0.25, 0].map(tick => `<span>${count(tick)}</span>`).join("")}</div>
-            <div class="trend-chart" role="img" aria-label="Davr ichida ${count(stats.reports)} ta audit yuborilgan">${chart}</div>
-            <div class="trend-axis"><span>${stats.trend[0].day}</span><span>${stats.trend.at(-1).day}</span></div></div>`
-            : empty("Faollik hali yo‘q", "Yuborilgan auditlar shu yerda paydo bo‘ladi.", "chart")}</section>
+        ${trendPanel(stats.trend, stats.reports, link(drill({}), "Auditlarni ko‘rish", false, "arrow-right"))}
         <section class="card dashboard-panel"><div class="panel-heading"><div><h2>Audit holati</h2><p>Tanlangan davr</p></div></div>
           ${stats.reports ? `<div class="status-track" aria-hidden="true">${statuses.map(([status,value]) =>
             `<i class="${status}" style="flex:${value}"${value ? "" : " hidden"}></i>`).join("")}</div>` : ""}
@@ -147,6 +157,79 @@
       </div>` : ""}
       <section class="card work-section"><div class="panel-heading"><div><h2>So‘nggi hisobotlar</h2><p>Korxona jamoasidan yuborilgan auditlar</p></div>${link("/reports", "Barchasi")}</div>
         ${latest.reports.length ? reportRows(latest.reports.slice(0,5)) : empty("Hisobotlar hali yo‘q", "Jamoa birinchi auditni yuborgach, uni shu yerda ko‘rasiz.")}</section>`;
+  }
+
+  function requestedDays() {
+    const days = new URLSearchParams(location.search).get("days");
+    return ["7", "30", "90"].includes(days) ? days : "30";
+  }
+  function reviewTime(seconds) {
+    if (seconds == null) return "—";
+    const minutes = Math.round(seconds / 60);
+    if (minutes <= 0) return "1 daqiqadan kam";
+    if (minutes < 60) return `${count(minutes)} daq`;
+    const hours = Math.floor(minutes / 60);
+    return hours < 24 ? `${count(hours)} soat ${count(minutes % 60)} daq` : `${count(Math.floor(hours / 24))} kun ${count(hours % 24)} soat`;
+  }
+  function platformAuditPanels(stats) {
+    const audit = stats.audits;
+    const recognized = audit.products ? `${Math.round(100 * audit.recognized / audit.products)}%` : "—";
+    return `<div class="dashboard-grid">
+      ${trendPanel(stats.trend, audit.total)}
+      <section class="card dashboard-panel"><div class="panel-heading"><div><h2>Audit holati</h2><p>Tanlangan davr</p></div></div>
+        ${[["submitted",audit.pending],["approved",audit.approved],["returned",audit.returned]].map(([status,value]) =>
+          `<div class="state-line">${reportTag(status)}<strong>${count(value)}</strong></div>`).join("")}
+        <div class="state-line"><span>O‘rtacha tekshiruv vaqti</span><strong>${reviewTime(audit.review_seconds)}</strong></div>
+        <div class="state-line"><span>Jami ochiq navbat</span><strong>${count(audit.open_queue)}</strong></div>
+        <div class="state-line"><span>SKU tanish</span><strong>${recognized}</strong></div>
+        <div class="state-line"><span>Topilgan bo‘sh joylar</span><strong>${count(audit.gaps)}</strong></div>
+      </section></div>`;
+  }
+  function platformEvents(events, scoped = false) {
+    const labels = {
+      organization_created: "Korxona yaratildi",
+      organization_activated: "Korxona faollashtirildi",
+      organization_suspended: "Korxona to‘xtatildi",
+      organization_renamed: "Korxona nomi yangilandi",
+      admin_created: "Admin yaratildi",
+      admin_activated: "Admin faollashtirildi",
+      admin_suspended: "Admin to‘xtatildi",
+      admin_password_reset: "Admin paroli tiklandi",
+    };
+    return `<section class="card work-section platform-events"><div class="panel-heading">
+        <div><h2>Boshqaruv tarixi</h2><p>So‘nggi 12 ta amal</p></div></div>
+        ${events.length ? `<ol class="audit-events platform-timeline">${events.map(event => `<li>
+          <span class="metric-icon">${icon(event.action.startsWith("admin_") ? "user" : "building")}</span>
+          <div><strong>${esc(labels[event.action] || event.action)}</strong>
+            <small>${scoped ? "" : `<a href="/organizations?id=${event.org_id}">${esc(event.organization)}</a> · `}
+            ${esc(event.actor)}${event.subject ? ` · ${esc(event.subject)}` : ""}</small></div>
+          <time>${esc(rastaDate(event.created))}</time>
+        </li>`).join("")}</ol>`
+        : empty("Amallar hali yo‘q", "Korxona va admin hisobidagi o‘zgarishlar shu yerda ko‘rinadi.", "report")}</section>`;
+  }
+  async function platform(days = requestedDays()) {
+    heading("Platforma statistikasi", "Korxonalar va auditlar faolligi", periodLabel + link("/organizations?create=1", "Korxona yaratish", true, "plus"));
+    bindPeriod(days, platform);
+    const stats = await rastaJson(`/api/platform/overview?days=${days}`);
+    if ($("days").value !== days) return;
+    body.innerHTML = `<div class="work-metrics">
+      ${metric("Korxonalar", count(stats.organizations.total), "building", "green", `${count(stats.organizations.active)} ta faol`)}
+      ${metric("Korxona hisoblari", count(stats.members.total), "users", "blue", `${count(stats.members.active)} ta faol`)}
+      ${metric("Ro‘yxatdagi do‘konlar", count(stats.stores), "store", "violet")}
+      ${metric("Kelgan auditlar", count(stats.audits.total), "report", "amber", `${count(stats.audits.reporting_orgs)} ta korxonadan · ${days} kun`)}
+      </div>${platformAuditPanels(stats)}
+      <section class="card work-section platform-activity">
+        <div class="panel-heading"><div><h2>Korxonalar faolligi</h2><p>Auditlar soni bo‘yicha eng faol 10 korxona</p></div>
+          ${link("/organizations", "Barcha korxonalar")}</div>
+        ${stats.activity.length ? table(["Korxona","Holat","Audit","Tekshiruvda","So‘nggi yuborilgan",""],
+          stats.activity.map(org => `<tr><td><strong>${esc(org.name)}</strong>
+            <small class="platform-mobile-summary">${count(org.audits)} ta audit · ${count(org.pending)} ta tekshiruvda
+            ${org.active ? "" : " · To‘xtatilgan"}</small></td>
+            <td>${tag(org.active ? "Faol" : "To‘xtatilgan",org.active ? "approved" : "returned")}</td>
+            <td>${count(org.audits)}</td><td>${count(org.pending)}</td><td>${esc(rastaDate(org.last_submission))}</td>
+            <td>${link(`/organizations?id=${org.id}&days=${days}`,"Boshqarish")}</td></tr>`).join(""))
+          : empty("Korxonalardan audit kelmadi", "Tanlangan davrda yuborilgan auditlar shu yerda ko‘rinadi.", "building")}
+      </section>${platformEvents(stats.events)}`;
   }
 
   async function reports() {
@@ -308,23 +391,41 @@
       const org = await rastaJson("/api/organizations", "POST", values);
       location.assign(`/organizations?id=${org.id}`);
     });
+    if (queries.get("create") === "1") {
+      queries.delete("create");
+      history.replaceState(null, "", queries.size ? "/organizations?" + queries : "/organizations");
+      $("add-org").onclick();
+    }
   }
-  async function organizationDetails(org) {
+  async function organizationDetails(org, days = requestedDays()) {
     heading(org.name, org.active ? "Faol ish maydoni" : "To‘xtatilgan korxona", link("/organizations", "Korxonalar")
-      + button("edit-org", "Sozlamalar", "building", false) + button("add-member", "Admin yaratish"));
+      + periodLabel + button("edit-org", "Sozlamalar", "building", false) + button("add-member", "Admin yaratish"));
+    bindPeriod(days, next => organizationDetails(org, next));
     $("edit-org").onclick = () => openEditor("Korxona sozlamalari", nameField("Korxona nomi") + activeField, async values => {
       await rastaJson(`/api/organizations/${org.id}`, "PATCH", {name:values.name, active: Boolean(values.active)});
       await render(organizations);
     }, org);
-    await memberList(`/api/organizations/${org.id}/members`, "Korxona adminlari", "Admin", () => render(organizations), "org_admin");
+    const stats = await rastaJson(`/api/organizations/${org.id}/overview?days=${days}`);
+    if ($("days").value !== days) return;
+    body.innerHTML = `<div class="work-metrics">
+      ${metric("Korxona hisoblari", count(stats.members.total), "users", "green", `${count(stats.members.active)} ta faol`)}
+      ${metric("Operatorlar", count(stats.members.operators), "user", "blue", `${count(stats.members.admins)} ta admin`)}
+      ${metric("Ro‘yxatdagi do‘konlar", count(stats.stores), "store", "violet")}
+      ${metric("Kelgan auditlar", count(stats.audits.total), "report", "amber", `Oxirgi ${days} kun`)}
+      </div>${platformAuditPanels(stats)}
+      <div class="card organization-activity-note">${icon("calendar")}<span>So‘nggi audit</span>
+        <strong>${esc(rastaDate(stats.audits.last_submission))}</strong></div>
+      <div id="organization-admins"></div>${platformEvents(stats.events, true)}`;
+    await memberList(`/api/organizations/${org.id}/members`, "Korxona adminlari", "Admin", () => render(organizations),
+      "org_admin", $("organization-admins"));
   }
   async function members() {
     heading("Xodimlar", `${session.user.organization} jamoasining foydalanuvchi hisoblari.`, button("add-member", "Operator yaratish"));
     await memberList("/api/members", "Jamoa hisoblari", "Operator", () => render(members), "operator");
   }
-  async function memberList(endpoint, title, label, refresh, editableRole) {
+  async function memberList(endpoint, title, label, refresh, editableRole, target = body) {
     const { users } = await rastaJson(endpoint);
-    body.innerHTML = `<section class="card work-section"><div class="panel-heading"><h2>${title}</h2></div>${users.length
+    target.innerHTML = `<section class="card work-section"><div class="panel-heading"><h2>${title}</h2></div>${users.length
       ? table(["Login","Rol","Holat",""], users.map(user => `<tr><td><strong>${esc(user.username)}</strong></td>
         <td>${rastaRole(user.role)}</td><td>${tag(user.active ? "Faol" : "To‘xtatilgan", user.active ? "approved" : "returned")}</td>
         <td>${user.role === editableRole ? `<button class="btn" data-member="${user.id}">Tahrirlash</button>` : ""}</td></tr>`).join(""))
@@ -333,7 +434,7 @@
       await rastaJson(endpoint, "POST", values);
       await refresh();
     });
-    body.querySelectorAll("[data-member]").forEach(button => button.onclick = () => {
+    target.querySelectorAll("[data-member]").forEach(button => button.onclick = () => {
       const user = users.find(item => item.id === Number(button.dataset.member));
       openEditor(user.username, activeField + passwordField(false), async values => {
         await rastaJson(`${endpoint}/${user.id}`, "PATCH", {active: Boolean(values.active), password: values.password || null});
@@ -368,7 +469,7 @@
       else if (value.unavailable) showError(new Error("Ish maydoni yuklanmadi. Server bilan bog‘lanishni tekshiring."));
       return;
     }
-    const page = ({"/dashboard": dashboard, "/reports": reports, "/organizations": organizations,
+    const page = ({"/platform": platform, "/dashboard": dashboard, "/reports": reports, "/organizations": organizations,
       "/members": members, "/stores": stores})[path];
     if (page) render(page);
   });

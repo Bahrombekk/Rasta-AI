@@ -51,20 +51,28 @@
 .workspace-page .btn { min-height: 38px; }
 .workspace-page .btn.primary { box-shadow: 0 1px 2px #142d2033; background: #176349; border-color: #176349; color: #fff; }
 [data-theme="dark"] .workspace-page .btn.primary { background: #83d3ab; border-color: #83d3ab; color: #0c2b1e; }
-.workspace-page[data-view="dashboard"] .work-heading {
+.workspace-page:is([data-view="dashboard"], [data-view="platform"]) .work-heading {
   position: relative; isolation: isolate; overflow: hidden; min-height: 139px; border-radius: 19px;
   padding: clamp(18px, 3vw, 35px); color: #effdf5;
   background: linear-gradient(112deg, #0e392b 2%, #1b5743 68%, #25684e);
 }
-.workspace-page[data-view="dashboard"] .work-heading::before {
+.workspace-page[data-view="platform"] .work-heading { background: linear-gradient(112deg, #152c3a 2%, #195459 70%, #246960); }
+.workspace-page:is([data-view="dashboard"], [data-view="platform"]) .work-heading::before {
   content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
   background: repeating-linear-gradient(115deg, transparent 0 22px, #c9f2d414 22px 23px);
   mask-image: linear-gradient(90deg, transparent 28%, #000 72%);
 }
-.workspace-page[data-view="dashboard"] .work-heading p { color: #d5eddf; }
-.workspace-page[data-view="dashboard"] .period-control { color: #e6f3eb; }
-.workspace-page[data-view="dashboard"] .period-control .input { background: #1b513f; border-color: #608876; color: #fff; }
-.workspace-page[data-view="dashboard"] .work-heading .btn { background: #dcf5e6; border-color: #dcf5e6; color: #15442f; }
+.workspace-page:is([data-view="dashboard"], [data-view="platform"]) .work-heading p { color: #d5eddf; }
+.workspace-page:is([data-view="dashboard"], [data-view="platform"]) .period-control { color: #e6f3eb; }
+.workspace-page:is([data-view="dashboard"], [data-view="platform"]) .period-control .input { background: #1b513f; border-color: #608876; color: #fff; }
+.workspace-page:is([data-view="dashboard"], [data-view="platform"]) .work-heading .btn { background: #dcf5e6; border-color: #dcf5e6; color: #15442f; }
+.organization-activity-note { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; padding: 12px 16px; margin-bottom: 16px; color: var(--muted); }
+.organization-activity-note strong { color: var(--ink); margin-inline-start: auto; }
+.platform-events { margin-top: 16px; }
+.platform-timeline li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; }
+.platform-timeline li > div { min-width: 0; overflow-wrap: anywhere; }
+.platform-timeline time { color: var(--muted); white-space: nowrap; font-size: 12px; }
+.platform-activity .platform-mobile-summary { display: none; }
 .panel-heading { margin: 0 0 16px; }
 .panel-heading h2, .capture-guide h2 { margin: 0; font-size: 17px; font-weight: 690; letter-spacing: -.025em; }
 .panel-heading p { margin-top: 3px; font-size: 13px; }
@@ -190,13 +198,17 @@
     display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible;
   }
   .workspace-shell[data-role="org_admin"] .shell-links { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .workspace-shell[data-role="super_admin"] .shell-links { grid-template-columns: 1fr; }
+  .workspace-shell[data-role="super_admin"] .shell-links { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .workspace-shell .shell-links a { min-width: 0; justify-content: flex-start; font-size: 11px; white-space: nowrap; }
   .workspace-shell .logo { font-size: 20px; }
   .workspace-shell .logo .mark { width: 34px; height: 34px; }
   .shell + .workspace-page { padding: 22px 13px 42px; }
   .work-heading { margin-bottom: 17px; }
   .dashboard-grid, .detail-grid { grid-template-columns: 1fr; }
+  .platform-timeline li { grid-template-columns: auto minmax(0, 1fr); }
+  .platform-timeline time { grid-column: 2; margin-top: -4px; }
+  .platform-activity .platform-mobile-summary { display: block; }
+  .platform-activity .work-table :is(td, th):nth-child(n+2):nth-child(-n+5) { display: none; }
   .work-metrics { gap: 8px; }
   .work-metric, .dashboard-panel, .work-section, .upload-panel { padding: 12px; }
   .work-metric { min-height: 113px; }
