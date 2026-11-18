@@ -8,7 +8,14 @@
   rastaSession.then(session => {
     canTeach = !session.workspaces || session.user?.role === "org_admin";
     $("historyLink").hidden = !session.workspaces;
+    $("submitPhase").hidden = !session.workspaces;
   });
+  function phase(current) {
+    for (const item of document.querySelectorAll("[data-phase]")) {
+      if (item.dataset.phase === current) item.setAttribute("aria-current", "step");
+      else item.removeAttribute("aria-current");
+    }
+  }
   const sel = new Set();          // o'rgatish uchun tanlangan qutilar
   const gapLayers = [
     { key: "gaps", label: "Bo‘sh joy", color: "#dc2626", dash: [6, 4] },
@@ -41,6 +48,9 @@
       img = next; file = f; pts = []; closed = false; drawing = false;
       resetResult(); R = null; hl = null;
       cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+      $("photoName").textContent = f.name;
+      $("photoInfo").textContent = `${cv.width} × ${cv.height} px`;
+      phase("photo");
       $("start").hidden = true; $("work").hidden = false;
       $("pre").hidden = false; $("res").hidden = true; $("boxesBtn").hidden = true;
       $("err").textContent = ""; ui(); draw();
@@ -54,7 +64,10 @@
     next.src = url;
   }
   $("choose").onclick = () => $("file").click();
-  $("file").onchange = e => { pick(e.target.files[0]); e.target.value = ""; };
+  $("cameraBtn").onclick = () => $("cameraFile").click();
+  for (const input of [$("file"), $("cameraFile")]) {
+    input.onchange = e => { pick(e.target.files[0]); e.target.value = ""; };
+  }
   const drop = $("drop");
   ["dragover", "dragenter"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
   ["dragleave", "drop"].forEach(t => drop.addEventListener(t, () => drop.classList.remove("over")));
@@ -133,6 +146,7 @@
   }
   function resetResult() {
     analysis?.abort();
+    phase("photo");
     sel.clear();
     $("teach").hidden = true;
     $("gapLegend").hidden = true;
@@ -232,6 +246,7 @@
     return out;
   }
   function show(d) {
+    phase("result");
     const s = d.summary;
     const scale = [cv.width / d.size[0], cv.height / d.size[1]];
     R = { ...d, data: d, scale, roiPts: d.roi?.map(([x, y]) => [x * scale[0], y * scale[1]]),
@@ -333,6 +348,7 @@
       if (R?.report_id !== reportId) return;
       sendForm.hidden = true;
       $("sentMessage").hidden = false;
+      phase("submit");
       $("sentMessage").querySelector("a").href = `/reports?id=${encodeURIComponent(reportId)}`;
     } catch (error) {
       if (R?.report_id === reportId) {

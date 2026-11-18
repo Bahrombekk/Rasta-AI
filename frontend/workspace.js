@@ -32,6 +32,7 @@
     $("work-title").textContent = title;
     $("work-subtitle").textContent = subtitle;
     actions.innerHTML = buttons;
+    $("workspace").dataset.view = path.slice(1);
     document.title = title + " · Rasta AI";
   }
   function showError(error) {
@@ -82,14 +83,24 @@
     `<a class="btn${primary ? " primary" : ""}" href="${href}">${glyph ? icon(glyph) : ""}${label}</a>`;
   const button = (id, label, glyph = "plus", primary = true) =>
     `<button class="btn${primary ? " primary" : ""}" id="${id}" type="button">${icon(glyph)}${label}</button>`;
-  const metric = (label, value, glyph, tone = "green") => `<article class="card work-metric">
-    <div><span class="metric-icon ${tone}">${icon(glyph)}</span><span>${label}</span></div><strong>${value}</strong></article>`;
+  const metric = (label, value, glyph, tone = "green", detail = "") => `<article class="card work-metric">
+    <span class="metric-icon ${tone}">${icon(glyph)}</span><span class="metric-label">${label}</span>
+    <strong>${value}</strong>${detail ? `<small class="metric-detail">${detail}</small>` : ""}</article>`;
   const table = (labels, rows) => `<div class="work-table-wrap"><table class="work-table">
     <thead><tr>${labels.map(label => `<th scope="col">${label}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>`;
-  const reportRows = (rows, filters) => table(["Do‘kon", "Holat", "Mahsulot", "Bo‘sh joy", "Vaqt", ""],
-    rows.map(row => `<tr><td><strong>${esc(row.store || "Do‘kon belgilanmagan")}</strong><small>${esc(row.author)}</small></td>
-      <td>${reportTag(row.status)}</td><td>${count(row.products)}</td><td>${count(row.gaps)}</td>
-      <td>${esc(rastaDate(row.submitted || row.created))}</td><td>${link(reportUrl(row.id, filters), "Ochish")}</td></tr>`).join(""));
+  const reportRows = (rows, filters) => {
+    const desktop = table(["Do‘kon / xodim", "Holat", "Mahsulot", "Bo‘sh joy", "Vaqt", ""],
+      rows.map(row => `<tr><td><div class="store-cell"><span class="store-icon">${icon("store")}</span>
+        <span><strong>${esc(row.store || "Do‘kon belgilanmagan")}</strong><small>${esc(row.author)}</small></span></div></td>
+        <td>${reportTag(row.status)}</td><td>${count(row.products)}</td><td>${count(row.gaps)}</td>
+        <td>${esc(rastaDate(row.submitted || row.created))}</td><td>${link(reportUrl(row.id, filters), "Ochish", false, "arrow-right")}</td></tr>`).join(""));
+    const mobile = rows.map(row => `<a class="mobile-audit" href="${reportUrl(row.id, filters)}">
+      <div><strong>${esc(row.store || "Do‘kon belgilanmagan")}</strong><small>${esc(row.author)} · ${esc(rastaDate(row.submitted || row.created))}</small></div>
+      ${reportTag(row.status)}
+      <div class="mobile-audit-metrics"><span>${count(row.products)} mahsulot</span><span>${count(row.gaps)} bo‘sh joy</span>${icon("arrow-right")}</div>
+    </a>`).join("");
+    return `<div class="desktop-audits">${desktop}</div><div class="mobile-audits">${mobile}</div>`;
+  };
 
   async function dashboard(days = "30") {
     heading("Bosh panel", session.user.organization,
@@ -102,23 +113,30 @@
     const recognition = stats.products ? Math.round(100 * stats.recognized / stats.products) + "%" : "—";
     const range = {from: stats.trend[0].day, to: stats.trend.at(-1).day};
     const drill = filter => reportsUrl(new URLSearchParams({...range, ...filter}));
-    const max = Math.max(1, ...stats.trend.map(item => item.count));
+    const peak = Math.max(1, ...stats.trend.map(item => item.count));
+    const max = Math.ceil(peak / 4) * 4;
     const chart = stats.trend.map(item => {
       const date = item.day.split("-").slice(1).reverse().join(".");
       return `<div class="trend-col" title="${date} · ${count(item.count)} ta"><i style="--value:${100 * item.count / max}%"></i></div>`;
     }).join("");
+    const statuses = [["submitted",stats.pending],["approved",stats.approved],["returned",stats.returned]];
     body.innerHTML = `<div class="work-metrics">
-      ${metric("Kelgan auditlar", count(stats.reports), "report")}
+      ${metric("Kelgan auditlar", count(stats.reports), "report", "green", `Oxirgi ${days} kun`)}
       ${metric("Tekshiruv navbati", count(stats.pending), "info", "amber")}
       ${metric("Kuzatilgan do‘konlar", count(stats.stores), "store", "blue")}
-      ${metric("SKU tanish", recognition, "scan")}</div>
+      ${metric("SKU tanish", recognition, "scan", "violet", stats.products ? `${count(stats.recognized)} / ${count(stats.products)} mahsulot` : "")}</div>
       <div class="dashboard-grid">
-        <section class="card dashboard-panel"><div class="panel-heading"><div><h2>Audit faolligi</h2><p>Kunlik yuborilgan hisobotlar · Toshkent vaqti</p></div></div>
-          ${stats.reports ? `<div class="trend-chart" role="img" aria-label="Davr ichida ${count(stats.reports)} ta audit yuborilgan">${chart}</div>
-            <div class="trend-axis"><span>${stats.trend[0].day}</span><span>${stats.trend.at(-1).day}</span></div>`
+        <section class="card dashboard-panel"><div class="panel-heading"><div><h2>Audit faolligi</h2><p>Kunlik hisobotlar · Toshkent vaqti</p></div>
+          ${link(drill({}), "Auditlarni ko‘rish", false, "arrow-right")}</div>
+          ${stats.reports ? `<div class="chart-frame">
+            <div class="chart-ticks" aria-hidden="true">${[max, max*0.75, max*0.5, max*0.25, 0].map(tick => `<span>${count(tick)}</span>`).join("")}</div>
+            <div class="trend-chart" role="img" aria-label="Davr ichida ${count(stats.reports)} ta audit yuborilgan">${chart}</div>
+            <div class="trend-axis"><span>${stats.trend[0].day}</span><span>${stats.trend.at(-1).day}</span></div></div>`
             : empty("Faollik hali yo‘q", "Yuborilgan auditlar shu yerda paydo bo‘ladi.", "chart")}</section>
         <section class="card dashboard-panel"><div class="panel-heading"><div><h2>Audit holati</h2><p>Tanlangan davr</p></div></div>
-          ${[["submitted",stats.pending],["approved",stats.approved],["returned",stats.returned]].map(([status,value]) => `<a class="state-line drill-link" href="${drill({status})}">${reportTag(status)}<strong>${count(value)} ${icon("arrow-right")}</strong></a>`).join("")}
+          ${stats.reports ? `<div class="status-track" aria-hidden="true">${statuses.map(([status,value]) =>
+            `<i class="${status}" style="flex:${value}"${value ? "" : " hidden"}></i>`).join("")}</div>` : ""}
+          ${statuses.map(([status,value]) => `<a class="state-line drill-link" href="${drill({status})}">${reportTag(status)}<strong>${count(value)} ${icon("arrow-right")}</strong></a>`).join("")}
           <div class="state-line"><span>Topilgan bo‘sh joylar</span><strong>${count(stats.gaps)}</strong></div></section>
       </div>
       ${stats.reports ? `<div class="dashboard-grid">
@@ -151,10 +169,13 @@
       ${items.map(([value,text]) => `<option value="${esc(value)}">${esc(text)}</option>`).join("")}</select></label>`;
     const dateField = (label, name) => `<label class="field"><span>${label}</span><input class="input" name="${name}" type="date"></label>`;
     const paged = nextOffset => reportsUrl(new URLSearchParams({...Object.fromEntries(filters), offset: nextOffset}));
-    body.innerHTML = `<section class="card work-section">
+    body.innerHTML = `<section class="card work-section report-list">
       <div class="panel-heading"><div><h2>Auditlar ro‘yxati</h2><p>${count(data.total)} ta natija</p></div>
-      ${canExport ? button("csv-export", "CSV yuklash", "download", false) : ""}</div>
-      <form class="report-filters" id="report-filters">
+      <div class="page-actions">
+        <button class="btn filter-toggle" id="filter-toggle" type="button" aria-controls="report-filters" aria-expanded="false">${icon("search")}
+          Filtrlar${filters.size ? ` (${filters.size})` : ""}</button>
+        ${canExport ? button("csv-export", "CSV yuklash", "download", false) : ""}</div></div>
+      <form class="report-filters" id="report-filters" data-collapsed="true">
         ${select("Holat", "status", "Barcha yuborilgan", Object.entries(statusNames))}
         ${select("Do‘kon", "store_id", "Barcha do‘konlar", stores.map(store => [store.id, store.name]))}
         ${manager ? select("Yuborgan", "author_id", "Barcha xodimlar", users.map(user => [user.id, user.username])) : ""}
@@ -167,6 +188,11 @@
       ${data.has_more || offset ? `<div class="pager">${offset ? link(paged(Math.max(0, offset-50)), "Oldingi") : ""}
         ${data.has_more ? link(paged(offset+50), "Keyingi") : ""}</div>` : ""}</section>`;
     const form = $("report-filters");
+    $("filter-toggle").onclick = event => {
+      const open = form.dataset.collapsed === "true";
+      form.dataset.collapsed = String(!open);
+      event.currentTarget.setAttribute("aria-expanded", String(open));
+    };
     for (const [key,value] of filters) {
       const control = form.elements.namedItem(key);
       if (control) control.value = value;

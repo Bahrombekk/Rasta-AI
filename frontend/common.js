@@ -35,6 +35,8 @@
     download: '<path d="M12 3v12m-5-5 5 5 5-5M4 15v5h16v-5"/>',
     building: '<path d="M4 21V4h12v17m0-11h4v11M2 21h20M8 8h4m-4 4h4m-4 4h4"/>',
     store: '<path d="M4 10v10h16V10M3 10l2-6h14l2 6M3 10c0 3 4 3 4 0 0 3 5 3 5 0 0 3 5 3 5 0 0 3 4 3 4 0M10 20v-5h4v5"/>',
+    camera: '<path d="M4 7h4l2-3h4l2 3h4a1 1 0 0 1 1 1v11H3V8a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13" r="3"/>',
+    calendar: '<rect x="4" y="6" width="16" height="14" rx="2"/><path d="M8 4v4m8-4v4M4 10h16"/>',
   };
   window.icon = (n, cls = "i") => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ""}</svg>`;
   window.esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -96,7 +98,7 @@
     ];
     el.className = "shell";
     el.innerHTML = `
-      <a class="logo" href="/"><span class="mark">${icon("scan")}</span><span>Rasta AI</span></a>
+      <a class="logo" href="/"><span class="mark">${icon("scan")}</span><span>Rasta<span class="shell-brand-ai"> AI</span></span></a>
       <div class="shell-context" hidden><span class="shell-context-icon">${icon("building")}</span><span></span></div>
       <nav class="shell-links" aria-label="Asosiy menyu"></nav>
       <div class="shell-account">
@@ -131,8 +133,9 @@
       }
       if (!session.workspaces && page === "team" && role !== "super_admin") { location.replace("/"); return; }
       const nav = el.querySelector(".shell-links");
-      nav.innerHTML = menu.map(key => links.find(link => link[0] === key)).map(([key, href, glyph, label]) =>
-        `<a href="${href}" ${key === page ? 'aria-current="page"' : ''}>${icon(glyph)}<span>${label}</span></a>`).join("");
+      const navigationLink = ([key, href, glyph, label]) =>
+        `<a href="${href}" ${key === page ? 'aria-current="page"' : ''}>${icon(glyph)}<span>${label}</span></a>`;
+      nav.innerHTML = menu.map(key => links.find(link => link[0] === key)).map(navigationLink).join("");
       if (session.workspaces) {
         el.classList.add("workspace-shell");
         el.dataset.role = role;

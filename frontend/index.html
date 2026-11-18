@@ -13,31 +13,45 @@
 <body>
 <header data-shell data-page="analysis"></header>
 
-<main class="page workspace-page">
+<main class="page workspace-page" data-view="analysis">
   <div class="work-heading">
     <div><h1>Javon tahlili</h1><p>Javon rasmini yuklang, natijani tekshiring va hisobotni yuboring.</p></div>
     <a class="btn" href="/reports" id="historyLink" hidden data-icon="report">Hisobotlar</a>
   </div>
+  <ol class="analysis-flow" aria-label="Javon tahlili bosqichlari">
+    <li aria-current="step" data-phase="photo"><span class="flow-icon" data-icon="image"></span>Rasm tanlash</li>
+    <li data-phase="result"><span class="flow-icon" data-icon="scan"></span>Natijani ko‘rish</li>
+    <li data-phase="submit" id="submitPhase" hidden><span class="flow-icon" data-icon="report"></span>Auditni yuborish</li>
+  </ol>
   <section class="analysis-entry" id="start">
     <div class="card upload-panel">
       <div class="panel-heading"><span class="metric-icon" data-icon="upload"></span><div><h2>Javon rasmi</h2><p>Javon yoki muzlatgichning bitta suratini tanlang.</p></div></div>
       <div class="drop" id="drop">
         <div class="ico" data-icon="upload"></div>
-        <p>Rasmni bu yerga tashlang yoki fayldan tanlang.<br><small>JPG, PNG, WebP · 20 MB gacha</small></p>
-        <button class="btn primary lg" id="choose" type="button" data-icon="image">Rasm tanlash</button>
+        <strong class="drop-title"><span class="drop-desktop">Rasmni shu yerga tashlang</span><span class="drop-touch">Rasmni yuklang</span></strong>
+        <p>JPG, PNG yoki WebP · 20 MB gacha</p>
+        <div class="upload-actions">
+          <button class="btn primary lg" id="choose" type="button" data-icon="image">Fayl tanlash</button>
+          <button class="btn lg camera-action" id="cameraBtn" type="button" data-icon="camera">Suratga olish</button>
+        </div>
       </div>
     </div>
     <aside class="card capture-guide">
       <img src="/static/login-shelf.webp" alt="" width="300" height="150">
-      <div><h2>Suratga olish</h2><ul><li>Javonni old tomondan suratga oling.</li><li>Yorug‘lik aksini kamaytiring.</li><li>Bir nechta javon bo‘lsa, keraklisini zona bilan belgilang.</li></ul></div>
+      <div><h2>Suratga olish bo‘yicha tavsiyalar</h2><ul><li>Javonni old tomondan suratga oling.</li><li>Yorug‘lik aksini kamaytiring.</li><li>Bir nechta javon bo‘lsa, keraklisini zona bilan belgilang.</li></ul></div>
     </aside>
   </section>
   <div class="err" id="fileErr" role="alert" hidden></div>
   <input id="file" type="file" accept="image/jpeg,image/png,image/webp">
+  <input id="cameraFile" type="file" accept="image/jpeg,image/png,image/webp" capture="environment">
 
   <!-- 2. Ish maydoni -->
   <div class="work" id="work" hidden>
     <section class="card viewer">
+      <div class="viewer-heading">
+        <span class="metric-icon" data-icon="image"></span>
+        <div><strong id="photoName"></strong><small id="photoInfo"></small></div>
+      </div>
       <div class="toolbar">
         <button class="btn" id="zoneBtn" data-icon="poly">Zona belgilash</button>
         <button class="btn ghost" id="zoneClear" hidden data-icon="x">Zonani olib tashlash</button>
@@ -46,7 +60,7 @@
         <button class="btn ghost on" id="boxesBtn" hidden data-icon="eye">Belgilar</button>
         <button class="btn ghost" id="newBtn" data-icon="refresh">Boshqa rasm</button>
       </div>
-      <div class="stage"><canvas id="cv"></canvas></div>
+      <div class="stage"><canvas id="cv" aria-label="Javon rasmi va tahlil belgilari"></canvas></div>
       <ul class="gap-legend" id="gapLegend" aria-label="Bo‘sh joy belgilari" hidden></ul>
     </section>
 
@@ -61,6 +75,10 @@
 
       <!-- natija -->
       <div id="res" hidden style="display:contents">
+        <section class="card card-pad result-overview">
+          <h2 class="section-title">Tahlil natijasi</h2>
+          <div class="kpis" id="kpis"></div>
+        </section>
         <section class="card card-pad" id="sendPanel" hidden>
           <h2 class="section-title">Auditni yuborish</h2>
           <form id="sendForm">
@@ -70,9 +88,6 @@
             <div class="err" id="sendError" role="alert"></div>
           </form>
           <p id="sentMessage" hidden role="status">Hisobot yuborildi. <a href="/reports">Hisobotlarni ko‘rish</a></p>
-        </section>
-        <section class="card card-pad">
-          <div class="kpis" id="kpis"></div>
         </section>
         <section class="card card-pad" id="shareCard">
           <p class="section-title">Javondagi ulush</p>
