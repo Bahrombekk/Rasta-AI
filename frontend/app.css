@@ -1,41 +1,56 @@
 /* Rasta — dizayn tizimi */
 :root {
+  color-scheme: light;
   --rail-width: 236px;
-  --rail: #122620;
-  --rail-ink: #edf8f2;
-  --rail-muted: #9ebcb1;
-  --bg: #f4f5f7;
-  --surface: #ffffff;
-  --surface-2: #f8fafc;
-  --border: #e5e7eb;
-  --border-strong: #d1d5db;
-  --ink: #0f172a;
-  --ink-2: #334155;
-  --muted: #64748b;
-  --accent: #059669;
-  --accent-ink: #ffffff;
-  --accent-soft: #ecfdf5;
-  --danger: #dc2626;
-  --danger-soft: #fef2f2;
-  --warn: #d97706;
-  --shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 4px 16px rgba(15, 23, 42, .05);
-  --radius: 14px;
-  --radius-sm: 9px;
+  --rail: #102a24;
+  --rail-ink: #f2fcf5;
+  --rail-muted: #b6cebf;
+  --signal: #c9f36c;
+  --signal-ink: #15281a;
+  --bg: #edf2ed;
+  --surface: #fff;
+  --surface-2: #f1f6f1;
+  --border: #becfc4;
+  --border-strong: #819a8b;
+  --ink: #142720;
+  --ink-2: #304b40;
+  --muted: #51685d;
+  --accent: #076045;
+  --accent-ink: #fff;
+  --accent-soft: #e1f3e7;
+  --danger: #a52a36;
+  --danger-soft: #fbe9eb;
+  --warn: #805000;
+  --warn-soft: #fff0cd;
+  --blue: #294e86;
+  --blue-soft: #e9effc;
+  --violet: #663989;
+  --violet-soft: #f1eafb;
+  --shadow: 0 2px 4px #1533290c, 0 10px 24px #15332909;
+  --radius: 16px;
+  --radius-sm: 10px;
 }
 :root[data-theme="dark"] {
-  --bg: #0b0f14;
-  --surface: #121821;
-  --surface-2: #161d27;
-  --border: #222b37;
-  --border-strong: #2e3947;
-  --ink: #e6ebf2;
-  --ink-2: #c3ccd8;
-  --muted: #8b98a9;
-  --accent: #10b981;
-  --accent-ink: #04140e;
-  --accent-soft: #0e2a21;
-  --danger: #f05252;
-  --danger-soft: #2a1515;
+  color-scheme: dark;
+  --bg: #111c18;
+  --surface: #1a2a23;
+  --surface-2: #22372d;
+  --border: #426253;
+  --border-strong: #738e80;
+  --ink: #edf8f0;
+  --ink-2: #d2e5d8;
+  --muted: #abc4b4;
+  --accent: #92e1b7;
+  --accent-ink: #102a20;
+  --accent-soft: #254639;
+  --danger: #ffb0b7;
+  --danger-soft: #4c272e;
+  --warn: #ffd688;
+  --warn-soft: #49371e;
+  --blue: #b6ceff;
+  --blue-soft: #293b56;
+  --violet: #e0c5ff;
+  --violet-soft: #413254;
   --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 20px rgba(0, 0, 0, .25);
 }
 * { box-sizing: border-box; }
@@ -43,7 +58,7 @@
 html, body { margin: 0; }
 body {
   background: var(--bg); color: var(--ink);
-  font: 15px/1.5 "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 a { color: inherit; }
@@ -51,6 +66,7 @@ button { font: inherit; }
 svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
         stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+::selection { background: var(--signal); color: var(--signal-ink); }
 
 .shell { position: fixed; inset: 0 auto 0 0; z-index: 30; width: var(--rail-width);
          display: flex; flex-direction: column; gap: 35px; padding: 27px 15px 18px;
@@ -179,7 +195,7 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 
 /* --- tugmalar --- */
 .btn { display: inline-flex; align-items: center; gap: 8px; justify-content: center;
-       font-size: 14px; font-weight: 550; padding: 9px 15px; border-radius: var(--radius-sm);
+       font-size: 14px; font-weight: 650; padding: 9px 15px; border-radius: var(--radius-sm);
        border: 1px solid var(--border); background: var(--surface); color: var(--ink); cursor: pointer;
        transition: background .15s, border-color .15s, box-shadow .15s; white-space: nowrap; }
 .btn:hover { border-color: var(--border-strong); background: var(--surface-2); }
@@ -278,8 +294,9 @@ input[type=file] { display: none; }
 /* --- admin --- */
 .field { display: block; margin-bottom: 14px; }
 .field span { display: block; font-size: 13px; font-weight: 550; color: var(--ink-2); margin-bottom: 6px; }
-.input { width: 100%; font: inherit; font-size: 14.5px; padding: 10px 12px; border: 1px solid var(--border);
+.input { width: 100%; font: inherit; font-size: 14.5px; padding: 10px 12px; border: 1px solid var(--border-strong);
          border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); }
+.input::placeholder { color: var(--muted); opacity: 1; }
 .input:focus { outline: none; border-color: var(--accent);
                box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
 .search { position: relative; }
