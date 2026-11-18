@@ -32,11 +32,15 @@ from .types import AnalysisResult, Detection
 
 
 class RastaPipeline:
-    def __init__(self, cfg: Optional[Config] = None):
+    def __init__(self, cfg: Optional[Config] = None, *, inference=None):
         self.cfg = cfg or Config.load()
-        self.device = resolve_device(self.cfg.get("device", "auto"))
-        self.detector = build_detector(self.cfg, self.device)
-        self.embedder = build_embedder(self.cfg, self.device)
+        if inference is None:
+            self.device = resolve_device(self.cfg.get("device", "auto"))
+            self.detector = build_detector(self.cfg, self.device)
+            self.embedder = build_embedder(self.cfg, self.device)
+        else:
+            self.device = inference.device
+            self.detector = self.embedder = inference
         self.catalog = build_catalog(self.cfg, dim=self.embedder.dim)
         self.params = RecognitionParams.from_cfg(self.cfg)
 

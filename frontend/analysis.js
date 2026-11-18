@@ -1,106 +1,3 @@
-<!doctype html>
-<html lang="uz">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Javon rasmlaridan mahsulotlar, javondagi ulush va bo‘sh joylarni tahlil qiling.">
-<title>Javon tahlili · Rasta AI</title>
-<link rel="stylesheet" href="/static/app.css">
-<script src="/static/common.js"></script>
-</head>
-<body>
-<header class="topbar"><div class="in">
-  <a class="logo" href="/"><span class="mark" data-icon="logo"></span><span class="t">Rasta AI</span></a>
-  <nav class="tabs" aria-label="Asosiy menyu"><a href="/" class="on" aria-current="page">Tahlil</a><a href="/admin">Mahsulotlar</a></nav>
-  <span class="sp"></span>
-  <button class="iconbtn" id="theme" title="Mavzu"></button>
-</div></header>
-
-<main class="page">
-  <section class="analysis-start" id="start">
-    <div class="analysis-intro">
-      <h1>Javon tahlili</h1>
-      <p>Javon yoki muzlatgich rasmini yuklang. Rasta AI mahsulotlarni sanaydi, ularning javondagi ulushini hisoblaydi va bo‘sh joylarni belgilaydi.</p>
-      <div class="drop" id="drop">
-        <div class="ico" data-icon="upload"></div>
-        <p>Rasmni bu yerga tashlang yoki fayldan tanlang.<br><small>JPG, PNG, WebP · 20 MB gacha</small></p>
-        <button class="btn primary lg" id="choose" type="button" data-icon="image">Rasm tanlash</button>
-      </div>
-    </div>
-    <figure class="analysis-example">
-      <img src="/static/shelf-example.jpg" alt="Mahsulotlar va bo‘sh joylar rangli ramkalar bilan belgilangan javon" width="1358" height="1080">
-      <figcaption>Mahsulotlar va bo‘sh joylar belgilangan natija namunasi</figcaption>
-    </figure>
-  </section>
-  <div class="err" id="fileErr" role="alert" hidden></div>
-  <input id="file" type="file" accept="image/jpeg,image/png,image/webp">
-
-  <!-- 2. Ish maydoni -->
-  <div class="work" id="work" hidden>
-    <section class="card viewer">
-      <div class="toolbar">
-        <button class="btn" id="zoneBtn" data-icon="poly">Zona belgilash</button>
-        <button class="btn ghost" id="zoneClear" hidden data-icon="x">Zonani olib tashlash</button>
-        <span class="hint" id="zoneHint"></span>
-        <span class="sp"></span>
-        <button class="btn ghost on" id="boxesBtn" hidden data-icon="eye">Belgilar</button>
-        <button class="btn ghost" id="newBtn" data-icon="refresh">Boshqa rasm</button>
-      </div>
-      <div class="stage"><canvas id="cv"></canvas></div>
-      <ul class="gap-legend" id="gapLegend" aria-label="Bo‘sh joy belgilari" hidden></ul>
-    </section>
-
-    <aside class="side">
-      <!-- tahlildan oldin -->
-      <section class="card card-pad" id="pre">
-        <h2 class="section-title">Rasm tayyor</h2>
-        <p class="analysis-help">Rasmda bir nechta javon bo‘lsa, keraklisini <strong>Zona belgilash</strong> orqali tanlang.</p>
-        <button class="btn primary lg block" id="go">Tahlil qilish</button>
-        <div class="err" id="err" role="alert"></div>
-      </section>
-
-      <!-- natija -->
-      <div id="res" hidden style="display:contents">
-        <section class="card card-pad">
-          <div class="kpis" id="kpis"></div>
-        </section>
-        <section class="card card-pad" id="shareCard">
-          <p class="section-title">Javondagi ulush</p>
-          <div class="share">
-            <svg class="donut" id="donut" viewBox="0 0 120 120"></svg>
-            <div class="plist" id="legend"></div>
-          </div>
-        </section>
-        <section class="card card-pad">
-          <p class="section-title" id="plTitle">Mahsulotlar</p>
-          <div class="plist" id="plist"></div>
-        </section>
-        <section class="card card-pad" id="teach" hidden>
-          <p class="section-title" id="teachTitle">Tanlangan</p>
-          <label class="field"><span>Bu qaysi mahsulot?</span>
-            <select class="input" id="teachSku"></select></label>
-          <div id="teachNew" hidden>
-            <label class="field"><span>Nomi</span><input class="input" id="teachName" placeholder="Masalan: Черноголовка Мохито 1.5L"></label>
-            <label class="field"><span>Brend</span><input class="input" id="teachBrand" placeholder="Masalan: Черноголовка"></label>
-          </div>
-          <div style="display:flex;gap:8px">
-            <button class="btn ghost" id="teachCancel">Bekor qilish</button>
-            <button class="btn primary" id="teachGo" style="flex:1">Katalogga qo'shish</button>
-          </div>
-          <div class="err" id="teachErr"></div>
-        </section>
-        <div id="notes" style="display:flex;flex-direction:column;gap:10px"></div>
-        <div class="result-actions">
-          <button class="btn" id="exportJson">JSON yuklash</button>
-          <button class="btn" id="exportImage">Rasmni saqlash</button>
-          <button class="btn ghost" id="again" data-icon="refresh">Qayta tahlil qilish</button>
-        </div>
-      </div>
-    </aside>
-  </div>
-</main>
-
-<script>
 (() => {
   const $ = id => document.getElementById(id);
   const cv = $("cv"), ctx = cv.getContext("2d");
@@ -280,7 +177,7 @@
     const old = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Tahlil qilinmoqda…';
     $("err").textContent = "";
     try {
-      const r = await fetch("/api/analyze", { method: "POST", body: fd, signal: request.signal });
+      const r = await rastaFetch("/api/analyze", { method: "POST", body: fd, signal: request.signal });
       const d = await r.json().catch(() => null);
       if (!r.ok || !d) throw new Error(typeof d?.detail === "string" ? d.detail : "Tahlilni yakunlab bo‘lmadi.");
       if (!request.signal.aborted) show(d);
@@ -400,7 +297,10 @@
   const token = () => { try { return sessionStorage.getItem("rasta-admin") || ""; } catch (e) { return ""; } };
   let products = [];
   async function loadProducts() {
-    try { products = (await (await fetch("/api/products")).json()).products; } catch (e) { products = []; }
+    try {
+      const response = await rastaFetch("/api/products");
+      products = response.ok ? (await response.json()).products : [];
+    } catch (e) { products = []; }
     $("teachSku").innerHTML = products.map(p => `<option value="${esc(p.sku_id)}">${esc(p.name)}${p.brand ? " · " + esc(p.brand) : ""}</option>`).join("")
       + `<option value="__new">+ Yangi mahsulot</option>`;
     $("teachNew").hidden = $("teachSku").value !== "__new";
@@ -426,11 +326,11 @@
     } else fd.append("sku_id", $("teachSku").value);
     const b = $("teachGo"); b.disabled = true; b.innerHTML = '<span class="spin"></span> Qo\'shilmoqda…';
     try {
-      let r = await fetch("/api/teach", { method: "POST", body: fd, headers: token() ? { "X-Admin-Token": token() } : {} });
-      if (r.status === 401) {
+      let r = await rastaFetch("/api/teach", { method: "POST", body: fd, headers: token() ? { "X-Admin-Token": token() } : {} });
+      if (r.status === 401 && !(await rastaSession).enabled) {
         const pw = prompt("Admin paroli:"); if (pw === null) throw new Error("Parol kiritilmadi");
         try { sessionStorage.setItem("rasta-admin", pw); } catch (e) {}
-        r = await fetch("/api/teach", { method: "POST", body: fd, headers: { "X-Admin-Token": pw } });
+        r = await rastaFetch("/api/teach", { method: "POST", body: fd, headers: { "X-Admin-Token": pw } });
       }
       const d = await r.json(); if (!r.ok) throw new Error(d.detail || "Xatolik");
       toast(`"${d.name}" ga ${d.added} ta namuna qo'shildi — qayta tahlil…`);
@@ -447,6 +347,3 @@
     draw();
   }
 })();
-</script>
-</body>
-</html>

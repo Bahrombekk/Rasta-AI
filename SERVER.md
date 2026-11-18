@@ -4,11 +4,12 @@ Loyiha quyidagilarni bitta serverda ishga tushiradi (docker-compose):
 
 | Komponent | Nima | Resurs talabi |
 |---|---|---|
-| **FastAPI + uvicorn** | Veb-ilova + admin panel (port 8000→8090) | yengil |
+| **Nginx frontend** | Sayt va API proksi (standart port 8090) | yengil |
+| **FastAPI backend** | Hisoblar, vektor katalogi, tahlil natijalari | RAM + CPU |
 | **Qdrant (ichki/lokal rejim)** | SKU vektor bazasi — `data/qdrant` volume | RAM + disk |
 | **Detektor ansambli** | yolo11-s (SKU-110K) + yolo11m (COCO butilka) | GPU/CPU |
 | **Embedding ansambli** | DINOv2-base + SigLIP2-base | GPU/CPU (eng og'iri) |
-| **Cloudflare tunnel** | Demo uchun tashqi manzil (ixtiyoriy) | yengil |
+| **FastAPI AI xizmati** | Alohida konteynerda deteksiya va embedding hisoblash | GPU/CPU |
 
 > Eslatma: Qdrant **alohida server emas** — `qdrant-client` lokal (fayl) rejimida ishlaydi, volume'da saqlanadi. Alohida ma'lumotlar bazasi serveri shart emas.
 
@@ -100,9 +101,13 @@ Bunda VLM'ni alohida GPU serverga (yoki alohida konteyner) ajratish tavsiya etil
 
 ```bash
 # NVIDIA GPU bo'lgan serverda (nvidia-container-toolkit o'rnatilgan bo'lishi kerak)
+docker build -f Dockerfile.base -t rasta-ai-base:1 .
 docker compose up -d --build        # -> http://localhost:8090
-docker compose logs -f rasta        # loglar
+docker compose exec backend python scripts/manage_users.py superadmin --role super_admin
+docker compose logs -f frontend backend ai
 ```
+
+`.env`, AI tokeni, model og‘irliklari va HTTPS sozlamalari uchun [README](README.md#dockerda-ishga-tushirish) bo‘limiga qarang.
 
 CPU-only serverda: `docker-compose.yml` dagi `gpus: all` qatorini olib tashlang (yoki izohga oling), qolgani o'zgarmaydi — `device: auto` avtomatik CPU'ga o'tadi.
 

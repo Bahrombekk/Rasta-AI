@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kirish · Rasta AI</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/common.js" defer></script>
+  <script src="/static/login.js" defer></script>
+</head>
+<body class="login-page">
+  <main class="login-layout">
+    <section class="login-main">
+      <div class="login-brand">
+        <a class="logo" href="/"><span class="mark" data-icon="logo"></span><span>Rasta AI</span></a>
+        <button class="iconbtn" type="button" id="theme" aria-label="Rang mavzusini almashtirish"></button>
+      </div>
+      <div class="login-form">
+        <h1>Hisobingizga kiring</h1>
+        <p>Javon tahlili va mahsulotlar katalogini boshqaring.</p>
+        <form id="login-form">
+          <label class="field"><span>Login</span><input class="input" name="username" autocomplete="username" required maxlength="64"></label>
+          <label class="field"><span>Parol</span><input class="input" name="password" type="password" autocomplete="current-password" required maxlength="128"></label>
+          <div class="err" id="error" role="alert"></div>
+          <button class="btn primary lg block" type="submit">Kirish</button>
+        </form>
+      </div>
+    </section>
+    <figure class="login-visual">
+      <img src="/static/shelf-example.jpg" alt="Mahsulot qutilari va javon bo‘shliqlari belgilangan namuna" width="1358" height="1080">
+      <figcaption>Javon tahlili namunasi</figcaption>
+    </figure>
+  </main>
+</body>
+</html>

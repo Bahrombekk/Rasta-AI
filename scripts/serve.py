@@ -15,20 +15,26 @@ def main():
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", 8000)))
     ap.add_argument("--config", default=None)
+    ap.add_argument("--api-only", action="store_true")
     ap.add_argument("--set", action="append", default=[])
     args = ap.parse_args()
 
     import uvicorn
 
-    from rasta.config import Config
+    from rasta.config import Config, resolve_path
     from rasta.web import app as web
+    from rasta.web.accounts import Accounts
 
     cfg = Config.load(args.config).override(args.set)
     public = args.host not in ("127.0.0.1", "localhost", "::1")
-    if public and not os.environ.get("RASTA_ADMIN_PASSWORD"):
+    accounts_path = os.environ.get("RASTA_ACCOUNTS_DB")
+    accounts = Accounts(resolve_path(accounts_path)) if accounts_path else None
+    if public and not accounts and not os.environ.get("RASTA_ADMIN_PASSWORD"):
         print("[!] Server tarmoqqa ochiq, RASTA_ADMIN_PASSWORD yo'q — admin amallari o'chirildi")
-    application = web.create_app(cfg, public=public)
-    print("[+] Modellar yuklanmoqda (birinchi marta ~10-20 s)...")
+    application = web.create_app(cfg, public=public, accounts=accounts,
+                                 secure_cookies=os.environ.get("RASTA_SECURE_COOKIES") == "1",
+                                 serve_frontend=not args.api_only)
+    print("[+] Rasta ish muhiti yuklanmoqda...")
     web.get_pipe()
     uvicorn.run(application, host=args.host, port=args.port, access_log=False)
 

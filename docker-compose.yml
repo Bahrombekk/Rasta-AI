@@ -1,37 +1,63 @@
-# Rasta AI veb-ilovasi
-#   docker compose up -d --build      -> http://localhost:8090   (admin: http://localhost:8090/admin)
-#   docker compose logs -f rasta      -> loglar
-#   docker compose down               -> to'xtatish (katalog volume'da saqlanib qoladi)
-#
-# Admin paroli: .env faylida  RASTA_ADMIN_PASSWORD=parol  (yoki shu yerda environment ostida)
 services:
-  rasta:
-    build: .
-    image: rasta-ai:latest
-    container_name: rasta-ai
+  frontend:
+    build: ./frontend
     restart: unless-stopped
     ports:
-      - "${RASTA_BIND:-127.0.0.1}:${RASTA_PORT:-8090}:8000"
+      - "${RASTA_BIND:-127.0.0.1}:${RASTA_PORT:-8090}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [web]
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
     environment:
-      - RASTA_ADMIN_PASSWORD=${RASTA_ADMIN_PASSWORD:-}
+      RASTA_AI_URL: http://ai:8012
+      RASTA_AI_TOKEN: "${RASTA_AI_TOKEN:?Set RASTA_AI_TOKEN in .env}"
+      RASTA_ACCOUNTS_DB: /app/data/accounts/users.sqlite3
+      RASTA_SECURE_COOKIES: "${RASTA_SECURE_COOKIES:-0}"
+      FORWARDED_ALLOW_IPS: "*"
     volumes:
       - rasta-catalog:/app/data/qdrant
       - rasta-images:/app/data/catalog_images
+      - rasta-accounts:/app/data/accounts
+      - ./models:/app/models:ro
+    depends_on:
+      ai:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json, urllib.request; raise SystemExit(not json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5))['loaded'])"]
+      interval: 15s
+      timeout: 7s
+      start_period: 30s
+      retries: 5
+    networks: [web, inference]
+
+  ai:
+    build: .
+    restart: unless-stopped
+    environment:
+      RASTA_AI_TOKEN: "${RASTA_AI_TOKEN:?Set RASTA_AI_TOKEN in .env}"
+    volumes:
       - ./models:/app/models:ro
     gpus: all
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8012/ready', timeout=5).close()"]
+      interval: 15s
+      timeout: 7s
+      start_period: 90s
+      retries: 5
+    networks: [inference]
 
-  # Demo uchun tashqi manzil (Cloudflare quick tunnel): manzil loglarda —
-  #   docker compose logs tunnel | grep trycloudflare
-  # Har qayta ishga tushganda manzil o'zgaradi. O'chirish: docker compose stop tunnel
-  tunnel:
-    profiles: ["demo"]
-    image: cloudflare/cloudflared:2025.8.1
-    container_name: rasta-tunnel
-    restart: unless-stopped
-    command: tunnel --no-autoupdate --url http://rasta:8000
-    depends_on:
-      - rasta
+networks:
+  web:
+  inference:
+    internal: true
 
 volumes:
   rasta-catalog:
   rasta-images:
+  rasta-accounts:

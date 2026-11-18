@@ -1,77 +1,3 @@
-<!doctype html>
-<html lang="uz">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Rasta — mahsulotlar</title>
-<link rel="stylesheet" href="/static/app.css">
-<script src="/static/common.js"></script>
-</head>
-<body>
-<header class="topbar"><div class="in">
-  <a class="logo" href="/"><span class="mark" data-icon="logo"></span><span class="t">Rasta</span></a>
-  <nav class="tabs"><a href="/">Tahlil</a><a href="/admin" class="on">Mahsulotlar</a></nav>
-  <span class="sp"></span>
-  <button class="iconbtn" id="theme" title="Mavzu"></button>
-</div></header>
-
-<main class="page">
-  <div class="page-head">
-    <div>
-      <h1>Mahsulotlar katalogi</h1>
-      <p id="sub">Tahlilda tanib olinadigan mahsulotlar.</p>
-    </div>
-    <div class="row" style="display:flex;gap:10px;flex-wrap:wrap">
-      <div class="search"><span data-icon="search"></span><input class="input" id="q" placeholder="Qidirish: nom yoki brend"></div>
-      <button class="btn primary" id="addBtn" data-icon="plus">Mahsulot qo'shish</button>
-    </div>
-  </div>
-
-  <div class="grid" id="grid"></div>
-  <section class="card card-pad" id="empty" hidden style="text-align:center;padding:48px 20px">
-    <div class="drop compact" style="border:0;background:none;cursor:default;padding:0">
-      <div class="ico" data-icon="box"></div>
-    </div>
-    <h3 style="margin:6px 0 4px">Katalog hali bo'sh</h3>
-    <p style="color:var(--muted);margin:0 0 18px">Birinchi mahsulotni qo'shing — uning rasmi tahlilda tanib olinadi.</p>
-    <button class="btn primary" id="addBtn2" data-icon="plus">Mahsulot qo'shish</button>
-  </section>
-</main>
-
-<!-- Qo'shish paneli -->
-<div class="scrim" id="scrim" hidden></div>
-<aside class="drawer" id="drawer" hidden aria-label="Mahsulot qo'shish">
-  <div class="hd"><h2 id="dTitle">Yangi mahsulot</h2><button class="iconbtn" id="close" title="Yopish"></button></div>
-  <form class="bd" id="form">
-    <label class="field"><span>Nomi</span>
-      <input class="input" id="name" required placeholder="Masalan: Coca-Cola 1.5L" autocomplete="off"></label>
-    <label class="field"><span>Brend</span>
-      <input class="input" id="brand" placeholder="Masalan: Coca-Cola" list="brands" autocomplete="off"></label>
-    <datalist id="brands"></datalist>
-    <div class="field" id="curWrap" hidden><span id="curLbl">Mavjud rasmlar</span>
-      <div class="thumbs" id="cur"></div>
-    </div>
-    <div class="field"><span id="newLbl">Rasmlar</span>
-      <label class="drop compact" id="drop" for="files">
-        <div class="ico" data-icon="upload"></div>
-        <div style="font-weight:600;font-size:14px">Rasmlarni tanlang yoki tashlang</div>
-        <div style="color:var(--muted);font-size:13px;margin-top:2px">Bir nechta rasm tanlash mumkin</div>
-      </label>
-      <input id="files" type="file" accept="image/*" multiple>
-      <div class="thumbs" id="thumbs"></div>
-    </div>
-    <div class="tip" id="tip"><b>Eng aniq usul:</b> Tahlil sahifasida javon rasmini tahlil qiling va mahsulot ramkalarini
-      bosib, "Katalogga qo'shish" orqali o'rgating — javondan olingan namuna internet rasmidan ancha ishonchli.
-      Har bir ta'm/hajmni alohida mahsulot qilib qo'shing (masalan "Черноголовка Тархун 1.5L").</div>
-    <div class="err" id="err"></div>
-  </form>
-  <div class="ft">
-    <button class="btn ghost" id="cancel" type="button">Bekor qilish</button>
-    <button class="btn primary" id="save" type="submit" form="form">Saqlash</button>
-  </div>
-</aside>
-
-<script>
 (() => {
   const $ = id => document.getElementById(id);
   let all = [], files = [];
@@ -79,8 +5,8 @@
 
   async function api(url, opts = {}, retry = true) {
     opts.headers = Object.assign({}, opts.headers, token() ? { "X-Admin-Token": token() } : {});
-    const r = await fetch(url, opts);
-    if (r.status === 401 && retry) {
+    const r = await rastaFetch(url, opts);
+    if (r.status === 401 && retry && !(await rastaSession).enabled) {
       const pw = prompt("Admin paroli:");
       if (pw === null) throw new Error("Parol kiritilmadi");
       try { sessionStorage.setItem("rasta-admin", pw); } catch (e) {}
@@ -209,6 +135,3 @@
 
   load();
 })();
-</script>
-</body>
-</html>

@@ -16,14 +16,18 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
+from starlette.concurrency import run_in_threadpool
 
 from ..config import ROOT, Config, resolve_path
+from ..inference import InferenceUnavailable, RemoteInference
+from .accounts import Accounts, SESSION_COOKIE
+from .session_api import session_router
 
-STATIC = Path(__file__).parent / "static"
+STATIC = ROOT / "frontend"
 MAX_SIDE = 2000                    # katta telefon rasmlari shu o'lchamgacha kichraytiriladi
 MAX_BYTES = 20 * 1024 * 1024
 MAX_PIXELS = 50_000_000            # "dekompressiya bombasi": kichik fayl, ulkan rasm
@@ -38,6 +42,7 @@ class State:
     pipe = None
     lock = threading.Lock()
     cfg: Optional[Config] = None
+    inference: Optional[RemoteInference] = None
     images_dir: Path = ROOT / "data" / "catalog_images"
     public = False      # server tarmoqqa ochiq (0.0.0.0) — parolsiz admin yopiladi
 
@@ -48,13 +53,15 @@ def get_pipe():
             if State.pipe is None:
                 from ..pipeline import RastaPipeline
                 State.cfg = State.cfg or Config.load()
-                State.pipe = RastaPipeline(State.cfg)
+                url = os.environ.get("RASTA_AI_URL")
+                State.inference = RemoteInference(State.cfg, url) if url else None
+                State.pipe = RastaPipeline(State.cfg, inference=State.inference)
                 State.images_dir = resolve_path(State.cfg.get("web.images_dir",
                                                               "data/catalog_images"))
     return State.pipe
 
 
-def check_admin(token: Optional[str]):
+def check_legacy_admin(token: Optional[str]):
     """Parol o'rnatilgan bo'lsa — talab qilinadi. O'rnatilmagan bo'lsa admin faqat lokal
     serverda (127.0.0.1) ochiq; tarmoqqa ochilgan serverda (Docker, tunnel) yopiq.
     RASTA_ADMIN_OPEN=1 — ataylab parolsiz ochiq admin (sinov/demo uchun)."""
@@ -233,19 +240,53 @@ def summarize(result, colors: dict[str, str]) -> dict:
     }
 
 
-def create_app(cfg: Optional[Config] = None, public: bool = False) -> FastAPI:
+def create_app(cfg: Optional[Config] = None, public: bool = False, *,
+               accounts: Accounts | None = None, secure_cookies: bool = False,
+               serve_frontend: bool = True) -> FastAPI:
     State.cfg = cfg
     State.public = public
-    app = FastAPI(title="Rasta AI", docs_url=None, redoc_url=None)
-    app.mount("/static", StaticFiles(directory=STATIC), name="static")
+    app = FastAPI(title="Rasta AI backend", docs_url=None, redoc_url=None, openapi_url=None)
+    app.include_router(session_router(accounts, secure_cookies))
 
-    @app.get("/")
-    def index():
-        return FileResponse(STATIC / "index.html")
+    def check_admin(token):
+        if accounts is None:
+            check_legacy_admin(token)
 
-    @app.get("/admin")
-    def admin():
-        return FileResponse(STATIC / "admin.html")
+    @app.middleware("http")
+    async def access(request: Request, call_next):
+        path = request.url.path
+        request.state.user = None
+        private = path.startswith(("/api/", "/media/"))
+        if private and accounts is not None:
+            request.state.user = await run_in_threadpool(accounts.session, request.cookies.get(SESSION_COOKIE))
+            if request.method not in ("GET", "HEAD", "OPTIONS") and request.headers.get("X-Rasta-Request") != "1":
+                return JSONResponse({"detail": "So‘rov tasdiqlanmadi."}, status_code=403)
+            public_api = path in {"/api/session", "/api/session/login", "/api/session/logout", "/api/health"}
+            if not public_api and request.state.user is None:
+                return JSONResponse({"detail": "Hisobingizga kiring."}, status_code=401)
+        if path == "/api/team" or path.startswith("/api/team/"):
+            if not request.state.user or request.state.user["role"] != "super_admin":
+                return JSONResponse({"detail": "Super admin ruxsati kerak."}, status_code=403)
+        response = await call_next(request)
+        if private and accounts is not None:
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.exception_handler(InferenceUnavailable)
+    async def unavailable(_request, exc):
+        return JSONResponse({"detail": str(exc)}, status_code=503)
+
+    if serve_frontend:
+        app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+        def endpoint(filename):
+            def page():
+                return FileResponse(STATIC / filename, headers={"Cache-Control": "no-cache"})
+            return page
+
+        for path, filename in {"/": "index.html", "/admin": "admin.html", "/login": "login.html",
+                               "/team": "team.html", "/account": "account.html"}.items():
+            app.add_api_route(path, endpoint(filename), methods=["GET"])
 
     @app.get("/media/{sku}/{name}")
     def media(sku: str, name: str):
@@ -461,9 +502,11 @@ def create_app(cfg: Optional[Config] = None, public: bool = False) -> FastAPI:
     @app.get("/api/health")
     def health():
         stale = getattr(State.pipe.catalog, "stale", None) if State.pipe is not None else None
-        return {"ok": True, "loaded": State.pipe is not None, "catalog_stale": bool(stale)}
+        ready = State.inference is None or State.inference.ready()
+        status = {"ok": ready, "loaded": State.pipe is not None and ready, "catalog_stale": bool(stale)}
+        return JSONResponse(status, status_code=200 if ready else 503)
 
     return app
 
 
-app = create_app()
+app = create_app(serve_frontend=STATIC.is_dir())

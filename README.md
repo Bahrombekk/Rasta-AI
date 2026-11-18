@@ -65,55 +65,33 @@ python scripts/onboard_and_analyze.py     # real javon: few-shot onboarding + ta
 python -m pytest tests -q                 # 58 ta test
 ```
 
-## Veb-ilova (eng oson yo'l)
+## Veb-ilova
 
-```bash
-python scripts/serve.py
-```
-Brauzerda: **http://127.0.0.1:8000** — tahlil, **http://127.0.0.1:8000/admin** — mahsulotlar.
+- **Tahlil** (`/`) javon yoki muzlatgich rasmini yuklash, zona tanlash, mahsulotlar va bo‘sh joylarni ko‘rish hamda natijani PNG yoki JSON sifatida saqlash imkonini beradi.
+- **Katalog** (`/admin`) SKU, brend va mahsulot rasmlarini boshqaradi. Admin va super admin bu sahifaga kirishi mumkin.
+- **Jamoa** (`/team`) super admin uchun. Bu yerda admin yaratish, vaqtincha o‘chirish, qayta faollashtirish va parolini tiklash mumkin.
+- **Hisob** (`/account`) joriy parolni almashtiradi va eski sessiyalarni yakunlaydi.
 
-- **Admin** (`/admin`): mahsulot nomi, brendi va rasm(lar)ini yuklaysiz — katalogga qo'shiladi
-  (bitta toza rasm yetarli; javondan olingan 3–5 rasm aniqroq). Ro'yxat va o'chirish shu yerda.
-- **Tahlil** (`/`): javon/muzlatgich rasmini yuklaysiz; xohlasangiz "Zona belgilash" bilan
-  kerakli muzlatgich burchaklarini bosasiz. Natija: rangli ramkali rasm (rang = jadvaldagi
-  mahsulot), mahsulotlar soni, tanish foizi, to'ldirilganlik, bo'sh joylar va har mahsulotning
-  ulushi.
-- Admin paroli: `set RASTA_ADMIN_PASSWORD=parol` (Windows) server ishga tushishidan oldin.
-  Parolsiz admin faqat lokal serverda (127.0.0.1) ochiq; tarmoqda (`--host 0.0.0.0`, Docker,
-  tunnel) parol qo'yilmasa admin amallari **o'chiriladi** (403), tahlil esa ishlayveradi.
-- Bir xil nomli mahsulot qayta qo'shilsa — 409 (jim-jit boshqa mahsulotga qo'shilib ketmaydi).
-- Katalog qaysi embedder bilan qurilganini eslaydi (`data/qdrant/rasta_meta.json`). Embedder
-  sozlamasi o'zgarsa ogohlantiradi (`/api/health` → `catalog_stale`) — qayta indekslang.
+Docker uchta xizmatni ishga tushiradi. **Frontend** Nginx orqali saytni beradi. **Backend** FastAPI orqali hisoblar, katalog, javon geometriyasi va KPI’larni boshqaradi. **AI** xizmati YOLO deteksiyasi va embeddinglarni hisoblaydi. Brauzer faqat frontend portiga ulanadi.
 
-## Docker'da ishga tushirish
+## Docker’da ishga tushirish
 
-Talab: Docker Desktop (Windows: WSL2) va NVIDIA drayveri. GPU bo'lmasa ham ishlaydi
-(CPU'da sekinroq) — `docker-compose.yml` dan `gpus: all` qatorini olib tashlang.
-GitHub'dan yangi checkout qilinganda, `config.yaml` dagi detektor og'irliklarini
-`models/weights/` ga joylashtiring. `models/negatives/aptash_v1.npz` ixtiyoriy.
-`.env.example` asosida `.env` yarating va admin uchun parol kiriting.
+1. `config.yaml` dagi detektor og‘irliklarini `models/weights/` ga joylashtiring. `models/negatives/aptash_v1.npz` ixtiyoriy.
+2. `.env.example` ni `.env` ga nusxalang. `python -c "import secrets; print(secrets.token_urlsafe(48))"` bilan token yarating va `RASTA_AI_TOKEN` sifatida kiriting.
+3. NVIDIA GPU mavjud bo‘lsa Docker GPU integratsiyasini yoqing. CPU’da ishlatish uchun Compose faylidagi `gpus: all` qatorini olib tashlang.
 
 ```bash
 docker build -f Dockerfile.base -t rasta-ai-base:1 .
-```
-```bash
 docker compose up -d --build
+docker compose exec backend python scripts/manage_users.py superadmin --role super_admin
 ```
-Birinchi buyruq bir marta bajariladi (~20 daqiqa: PyTorch + modellar alohida bazaviy
-image'ga). Ikkinchisi kod o'zgarganda — ~30 soniya. Brauzerda: **http://localhost:8090**
-(admin: **/admin**).
 
-- Port o'zgartirish: `.env` faylida `RASTA_PORT=9000`.
-- Admin paroli: `.env` faylida `RASTA_ADMIN_PASSWORD=parol`.
-- Katalog va mahsulot rasmlari `rasta-catalog` / `rasta-images` volume'larida saqlanadi —
-  `docker compose down` dan keyin ham yo'qolmaydi (`down -v` — o'chiradi).
-- Loglar: `docker compose logs -f rasta`.
-- Embedding modellari image ichida, detektor og'irliklari esa `./models` papkasidan ulanadi.
-  Shu fayllar tayyor bo'lgach, konteyner internetsiz ishlaydi.
-- Standart port faqat lokal interfeysga bog'lanadi. Domen orqali chiqarishda HTTPS reverse
-  proxy ishlating. Vaqtinchalik tashqi demo uchun `docker compose --profile demo up -d`.
-- Katalogni saqlangan rasmlardan qayta indekslash uchun admin paroli bilan
-  `POST /api/reindex` so'rovini yuboring. Parol `X-Admin-Token` sarlavhasida uzatiladi.
+Brauzerda **http://127.0.0.1:8090/login** ni oching, super admin bo‘lib kiring va **Jamoa** sahifasida admin yarating. Compose portini `RASTA_PORT` orqali sozlash mumkin.
+
+- `rasta-catalog`, `rasta-images` va `rasta-accounts` volume’larini birga zaxiralang. `docker compose down -v` ularni o‘chiradi.
+- Xizmat loglari uchun `docker compose logs -f frontend backend ai` ishlating. Tayyorlik holati `/api/health` da ko‘rinadi.
+- Domen bilan chiqarishda frontendni HTTPS reverse proxy ortiga joylashtiring va `RASTA_SECURE_COOKIES=1` belgilang.
+- Docker’siz lokal dasturlash uchun `python scripts/serve.py` ham ishlaydi. Shu rejimda hisoblarni yoqish uchun `RASTA_ACCOUNTS_DB` ni belgilang va `python scripts/manage_users.py superadmin` orqali birinchi hisobni yarating.
 
 ## Real ishlatish (buyruq qatori)
 

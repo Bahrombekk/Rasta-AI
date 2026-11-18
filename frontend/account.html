@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mening hisobim · Rasta AI</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/common.js" defer></script>
+  <script src="/static/account.js" defer></script>
+</head>
+<body>
+  <header data-shell data-page="account"></header>
+  <main class="page">
+    <div class="page-head"><div><h1>Mening hisobim</h1><p id="account-name"></p></div></div>
+    <section class="card card-pad account-card">
+      <h2>Parolni almashtirish</h2>
+      <form id="password-form">
+        <label class="field"><span>Joriy parol</span><input class="input" name="current" type="password" autocomplete="current-password" required maxlength="128"></label>
+        <label class="field"><span>Yangi parol</span><input class="input" name="password" type="password" autocomplete="new-password" required minlength="12" maxlength="128"><small>Kamida 12 ta belgi.</small></label>
+        <div class="err" id="account-error" role="alert"></div>
+        <button type="submit" class="btn primary">Parolni almashtirish</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

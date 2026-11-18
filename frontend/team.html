@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jamoa · Rasta AI</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/common.js" defer></script>
+  <script src="/static/team.js" defer></script>
+</head>
+<body>
+  <header data-shell data-page="team"></header>
+  <main class="page">
+    <div class="page-head">
+      <div><h1>Jamoa</h1><p>Admin hisoblarini yarating va boshqaring.</p></div>
+      <button class="btn primary" id="add-admin" type="button" data-icon="plus" disabled>Admin qo‘shish</button>
+    </div>
+    <section class="card team-card" aria-label="Jamoa hisoblari">
+      <div id="team-list" class="team-list"></div>
+      <div class="empty" id="team-status" role="status">Hisoblar yuklanmoqda…</div>
+    </section>
+    <dialog id="admin-dialog" class="edit-dialog">
+      <form id="admin-form">
+        <div class="dialog-head">
+          <h2 id="dialog-title">Yangi admin</h2>
+          <button class="iconbtn" id="dialog-close" type="button" aria-label="Yopish" data-icon="x"></button>
+        </div>
+        <div class="dialog-body">
+          <label class="field"><span>Login</span><input class="input" name="username" required minlength="3" maxlength="48" autocomplete="off"></label>
+          <label class="field"><span id="password-label">Parol</span>
+            <input class="input" name="password" type="password" minlength="12" maxlength="128" autocomplete="new-password">
+            <small id="password-hint">Kamida 12 ta belgi.</small>
+          </label>
+          <label class="field check-field" id="active-field" hidden><input type="checkbox" name="active"><span>Hisob faol</span></label>
+          <div class="err" id="dialog-error" role="alert"></div>
+        </div>
+        <div class="dialog-actions"><button class="btn primary" type="submit">Saqlash</button></div>
+      </form>
+    </dialog>
+  </main>
+</body>
+</html>
