@@ -23,6 +23,11 @@ class PasswordUpdate(BaseModel):
 def session_router(accounts, secure, *, workspaces=None):
     router = APIRouter()
 
+    def cookie_secure(request: Request) -> bool:
+        # RASTA_SECURE_COOKIES bilan majburlanadi; bundan tashqari so'rov HTTPS
+        # orqali kelsa (proksi X-Forwarded-Proto'si) avtomatik Secure bo'ladi.
+        return secure or request.url.scheme == "https"
+
     @router.get("/api/session")
     def session(request: Request, response: Response):
         response.headers["Cache-Control"] = "no-store"
@@ -48,14 +53,14 @@ def session_router(accounts, secure, *, workspaces=None):
         accounts.logout(request.cookies.get(SESSION_COOKIE))
         response.headers["Cache-Control"] = "no-store"
         response.set_cookie(SESSION_COOKIE, token, max_age=SESSION_TTL, httponly=True,
-                            secure=secure, samesite="lax")
+                            secure=cookie_secure(request), samesite="lax")
         return {"user": user, "workspaces": workspaces is not None}
 
     @router.post("/api/session/logout")
     def logout(request: Request, response: Response):
         if accounts is not None:
             accounts.logout(request.cookies.get(SESSION_COOKIE))
-        response.delete_cookie(SESSION_COOKIE, secure=secure, httponly=True, samesite="lax")
+        response.delete_cookie(SESSION_COOKIE, secure=cookie_secure(request), httponly=True, samesite="lax")
         return {"ok": True}
 
     @router.post("/api/session/password")
@@ -68,7 +73,7 @@ def session_router(accounts, secure, *, workspaces=None):
             raise HTTPException(400, str(exc)) from exc
         if not changed:
             raise HTTPException(400, "Joriy parol xato.")
-        response.delete_cookie(SESSION_COOKIE, secure=secure, httponly=True, samesite="lax")
+        response.delete_cookie(SESSION_COOKIE, secure=cookie_secure(request), httponly=True, samesite="lax")
         return {"ok": True}
 
     @router.get("/api/team")
