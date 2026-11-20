@@ -16,8 +16,10 @@ torchinductor_*/
 *.pt
 *.onnx
 *.engine
-models/weights/
 models/negatives/
+models/candidates/
+# Prod uchun ishlatiladigan og'irliklar Git LFS orqali kuzatiladi:
+!models/weights/*.pt
 
 # Ma'lumotlar bazasi va data
 data/
