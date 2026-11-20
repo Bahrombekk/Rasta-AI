@@ -355,6 +355,14 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
             organization_scope.reset(scope)
         if private and accounts is not None:
             response.headers["Cache-Control"] = "no-store"
+        # Xavfsizlik sarlavhalari (clickjacking, MIME-sniffing, referrer sizib chiqishi)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault("Content-Security-Policy", "frame-ancestors 'none'")
+        if secure_cookies:
+            response.headers.setdefault(
+                "Strict-Transport-Security", "max-age=63072000; includeSubDomains")
         return response
 
     @app.exception_handler(InferenceUnavailable)
