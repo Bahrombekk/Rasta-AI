@@ -165,7 +165,7 @@ export default function mountPage() {
     $("cancel").textContent = readOnly ? "Yopish" : "Bekor qilish";
     if (editing) renderCur();
     lock(false);
-    dialog.showModal();
+    if (!dialog.open) dialog.showModal();
   }
   $("addBtn").onclick = () => open();
   $("close").onclick = $("cancel").onclick = () => { if (!busy) dialog.close(); };
@@ -183,13 +183,146 @@ export default function mountPage() {
     finally { opening = false; }
   };
 
+  // Namuna rasmi + AI o'rganadigan qism (ramka). Ramka foizlarda, rasm o'z nisbatida
+  // ko'rsatiladi — shuning uchun ramka aynan mahsulot ustiga tushadi.
+  function shotTile(im) {
+    const pct = value => (value * 100).toFixed(2) + "%";
+    const [label, cls] = im.shelf ? ["Javondan", ""] : !im.located ? ["Ajratilmagan", "warn"]
+      : !im.box ? ["Butun rasm", ""] : im.auto ? ["Avto", ""] : ["Qo‘lda", "manual"];
+    const box = im.box ? `<span class="shot-box" style="left:${pct(im.box[0])};top:${pct(im.box[1])};width:${pct(im.box[2] - im.box[0])};height:${pct(im.box[3] - im.box[1])}"></span>` : "";
+    const editable = !readOnly && !im.shelf;
+    return `<div class="shot-tile"><a class="shot" href="${esc(scoped(im.url))}" ${editable
+      ? `data-edit="${esc(im.name)}" title="Mahsulot chegarasini to‘g‘rilash"` : 'target="_blank" rel="noopener"'}>
+      <img src="${esc(scoped(im.url))}" alt="${im.shelf ? "Javon namunasi" : "Mahsulot namunasi"}" loading="lazy">${box}</a>
+      <span class="shot-badge ${cls}">${label}</span>`
+      + (!readOnly && editing.images.length > 1 ? `<button type="button" data-n="${esc(im.name)}" aria-label="Rasmni o‘chirish">✕</button>` : "") + "</div>";
+  }
   function renderCur() {
     $("curLbl").textContent = `Mavjud rasmlar · ${editing.images.length} ta`;
-    $("cur").innerHTML = editing.images.map(im => `<div><a href="${esc(scoped(im.url))}" target="_blank" rel="noopener">
-      <img src="${esc(scoped(im.url))}" alt="${im.shelf ? "Javon namunasi" : "Mahsulot namunasi"}" loading="lazy"></a>`
-      + (!readOnly && editing.images.length > 1 ? `<button type="button" data-n="${esc(im.name)}" aria-label="Rasmni o‘chirish">✕</button>` : "") + "</div>").join("");
+    $("cur").innerHTML = editing.images.map(shotTile).join("");
+    for (const img of $("cur").querySelectorAll(".shot img")) {
+      const fit = () => {
+        if (!img.naturalWidth) return;
+        img.parentElement.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
+        img.parentElement.classList.toggle("wide", img.naturalWidth > img.naturalHeight);
+      };
+      if (img.complete) fit(); else img.addEventListener("load", fit, { once: true });
+    }
+    const photos = editing.images.filter(image => !image.shelf);
+    $("shotHelp").hidden = readOnly || !photos.length;
+    $("relocateTip").hidden = readOnly || !photos.some(image => !image.located);
   }
+  async function refreshEditing() {
+    editing = await api("/api/products/" + encodeURIComponent(editing.sku_id));
+    renderCur();
+  }
+  $("relocate").onclick = async () => {
+    if (!editing || busy) return;
+    lock(true); $("err").textContent = "";
+    const loader = window.rastaLoader($("form"), ["Mahsulot qidirilmoqda", "Kadrdan ajratilmoqda", "Qayta o‘rganilmoqda"]);
+    try {
+      await api("/api/products/" + encodeURIComponent(editing.sku_id) + "/reindex", { method: "POST" });
+      await refreshEditing();
+      toast("Mahsulot ajratildi — ramkalarni tekshiring");
+      load();
+    } catch (error) { $("err").textContent = error.message; }
+    finally { loader.stop(); lock(false); }
+  };
+
+  // ---------- mahsulot chegarasi tahrirchisi ----------
+  const boxDialog = $("boxEditor"), boxStage = $("boxStage"), boxRect = $("boxRect");
+  const boxButtons = ["boxSave", "boxAuto", "boxFull", "boxCancel", "boxClose"];
+  let boxTarget = null, boxValue = null, boxDrag = null, boxBusy = false;
+  const clamp = (value, low = 0, high = 1) => Math.min(high, Math.max(low, value));
+  function showBox() {
+    boxRect.hidden = !boxValue;
+    $("boxState").textContent = boxValue ? "" : "Ramka yo‘q — butun rasm ishlatiladi. Yangi ramka chizish uchun rasm ustida torting.";
+    if (!boxValue) return;
+    const [x1, y1, x2, y2] = boxValue;
+    Object.assign(boxRect.style, { left: x1 * 100 + "%", top: y1 * 100 + "%", width: (x2 - x1) * 100 + "%", height: (y2 - y1) * 100 + "%" });
+  }
+  function openBox(image) {
+    boxTarget = image;
+    boxValue = image.box ? [...image.box] : null;
+    $("boxErr").textContent = "";
+    $("boxImage").src = scoped(image.url);
+    showBox();
+    boxDialog.showModal();
+  }
+  const pointer = event => {
+    const rect = boxStage.getBoundingClientRect();
+    return [clamp((event.clientX - rect.left) / rect.width), clamp((event.clientY - rect.top) / rect.height)];
+  };
+  boxStage.onpointerdown = event => {
+    if (boxBusy || event.button > 0) return;
+    const [x, y] = pointer(event), handle = event.target.dataset.h;
+    if (handle && boxValue) {                 // burchak: qarama-qarshi burchak joyida qoladi
+      boxDrag = { previous: [...boxValue], fx: handle.includes("w") ? boxValue[2] : boxValue[0],
+                  fy: handle.includes("n") ? boxValue[3] : boxValue[1] };
+    } else if (event.target === boxRect && boxValue) {
+      boxDrag = { previous: [...boxValue], dx: x - boxValue[0], dy: y - boxValue[1],
+                  w: boxValue[2] - boxValue[0], h: boxValue[3] - boxValue[1] };
+    } else {
+      boxDrag = { previous: boxValue && [...boxValue], fx: x, fy: y };
+    }
+    boxStage.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  };
+  boxStage.onpointermove = event => {
+    if (!boxDrag) return;
+    const [x, y] = pointer(event);
+    if (boxDrag.w) {
+      const nx = clamp(x - boxDrag.dx, 0, 1 - boxDrag.w), ny = clamp(y - boxDrag.dy, 0, 1 - boxDrag.h);
+      boxValue = [nx, ny, nx + boxDrag.w, ny + boxDrag.h];
+    } else {
+      boxValue = [Math.min(boxDrag.fx, x), Math.min(boxDrag.fy, y), Math.max(boxDrag.fx, x), Math.max(boxDrag.fy, y)];
+    }
+    showBox();
+  };
+  boxStage.onpointerup = boxStage.onpointercancel = () => {
+    if (!boxDrag) return;
+    if (boxValue && (boxValue[2] - boxValue[0] < 0.04 || boxValue[3] - boxValue[1] < 0.04)) boxValue = boxDrag.previous;
+    boxDrag = null;
+    showBox();
+  };
+  async function saveBox(value, message) {
+    if (boxBusy || !boxTarget) return;
+    boxBusy = true; $("boxErr").textContent = "";
+    for (const id of boxButtons) $(id).disabled = true;
+    const loader = window.rastaLoader($("boxBody"), ["Chegara saqlanmoqda", "Belgilar ajratilmoqda", "Katalog yangilanmoqda"]);
+    const body = new FormData();
+    body.set("box", value === "auto" ? "auto" : JSON.stringify(value && value.map(number => +number.toFixed(4))));
+    try {
+      const saved = await api(`/api/products/${encodeURIComponent(editing.sku_id)}/images/${encodeURIComponent(boxTarget.name)}/box`, { method: "PUT", body });
+      await refreshEditing();
+      if (value === "auto") {                 // natijani ko'rsatib, oynani ochiq qoldiramiz
+        boxTarget = editing.images.find(image => image.name === boxTarget.name) || boxTarget;
+        boxValue = saved.box ? [...saved.box] : null;
+        showBox();
+        if (!saved.box) $("boxState").textContent = "Mahsulot avtomatik topilmadi — ramkani qo‘lda chizing.";
+      } else boxDialog.close();
+      toast(message);
+      load();
+    } catch (error) { $("boxErr").textContent = error.message; }
+    finally {
+      loader.stop(); boxBusy = false;
+      for (const id of boxButtons) $(id).disabled = false;
+    }
+  }
+  $("boxSave").onclick = () => saveBox(boxValue, "Chegara saqlandi — mahsulot qayta o‘rganildi");
+  $("boxAuto").onclick = () => saveBox("auto", "Chegara avtomatik aniqlandi");
+  $("boxFull").onclick = () => { if (!boxBusy) { boxValue = null; showBox(); } };
+  $("boxClose").onclick = $("boxCancel").onclick = () => { if (!boxBusy) boxDialog.close(); };
+  boxDialog.addEventListener("cancel", event => { if (boxBusy) event.preventDefault(); });
+
   $("cur").onclick = async event => {
+    const shot = event.target.closest("a[data-edit]");
+    if (shot) {
+      event.preventDefault();
+      const image = editing.images.find(item => item.name === shot.dataset.edit);
+      if (image && !busy) openBox(image);
+      return;
+    }
     const button = event.target.closest("button[data-n]");
     if (!button || busy || !confirm("Rasm o‘chirilsinmi? Qolgan rasmlar qayta indekslanadi.")) return;
     lock(true); $("err").textContent = "";
@@ -250,6 +383,8 @@ export default function mountPage() {
     const savedFiles = new FormData();
     files.forEach(file => savedFiles.append("files", file));
     try {
+      const added = files.length;
+      let sku = editing?.sku_id;
       if (editing) {
         const url = "/api/products/" + encodeURIComponent(editing.sku_id);
         if (fields.some(id => values[id] !== (editing[id] || ""))) {
@@ -259,13 +394,30 @@ export default function mountPage() {
       } else {
         body.set("sku_id", $("sku").value.trim());
         files.forEach(file => body.append("files", file));
-        await api("/api/products", { method: "POST", body });
+        sku = (await api("/api/products", { method: "POST", body })).sku_id;
       }
-      dialog.close(); toast("Mahsulot saqlandi"); load();
+      if (added) {
+        // yangi rasmlar: AI nimani "mahsulot" deb ajratganini darhol ko'rsatamiz
+        open(await api("/api/products/" + encodeURIComponent(sku)));
+        toast("Saqlandi — yashil ramkalarni tekshiring");
+      } else { dialog.close(); toast("Mahsulot saqlandi"); }
+      load();
     } catch (error) {
       $("err").textContent = error.message;
       load();
     } finally { loader.stop(); lock(false); }
+  };
+
+  $("reindexAll").onclick = async event => {
+    if (busy || !confirm("Barcha mahsulotlar saqlangan rasmlaridan qayta o‘rganilsinmi? Fonli rasmlarda mahsulot avtomatik ajratib olinadi. Bu bir necha daqiqa olishi mumkin.")) return;
+    const button = event.currentTarget;
+    busy = true; button.disabled = true;
+    const loader = window.rastaLoader($("catalog-content"), ["Rasmlar o‘qilmoqda", "Mahsulotlar ajratilmoqda", "Belgilar ajratilmoqda", "Katalog yangilanmoqda"], { interval: 2500 });
+    try {
+      const result = await api("/api/reindex", { method: "POST" });
+      toast(`${result.reindexed.length} ta mahsulot qayta o‘rganildi`);
+    } catch (error) { toast(error.message); }
+    finally { loader.stop(); busy = false; button.disabled = false; load(); }
   };
 
   async function init() {
@@ -290,6 +442,7 @@ export default function mountPage() {
       };
     } else {
       $("addBtn").hidden = false;
+      $("reindexAll").hidden = false;
     }
     await load();
   }

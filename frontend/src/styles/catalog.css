@@ -61,3 +61,38 @@
   .catalog-product .nm { white-space: normal; overflow-wrap: anywhere; }
   .catalog-page .btn, .catalog-dialog .btn, .catalog-dialog .iconbtn, .catalog-filters .input { min-height: 44px; }
 }
+
+/* Namuna rasmi: AI o'rganadigan qism (ramka) va chegarani to'g'rilash */
+.shot-help { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+.shot-warn { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px;
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+.shot-warn span { flex: 1 1 220px; }
+#cur .shot-tile { display: grid; place-items: center; }
+#cur .shot { position: relative; display: block; overflow: hidden; border-radius: 5px;
+  height: calc(100% - 10px); max-width: calc(100% - 10px); aspect-ratio: 1; }
+#cur .shot.wide { height: auto; width: calc(100% - 10px); max-width: none; }
+#cur .shot[data-edit] { cursor: pointer; }
+#cur .shot img { display: block; width: 100%; height: 100%; object-fit: fill; padding: 0; }
+.shot-box { position: absolute; border: 2px solid #35e08a; border-radius: 3px; pointer-events: none;
+  box-shadow: 0 0 0 999px rgba(8, 18, 14, .5); }
+.shot-badge { position: absolute; left: 5px; bottom: 5px; padding: 1px 7px; border-radius: 999px;
+  font-size: 10.5px; font-weight: 600; color: #fff; background: rgba(15, 23, 42, .78); pointer-events: none; }
+.shot-badge.warn { background: var(--danger); }
+.shot-badge.manual { background: var(--accent); color: var(--accent-ink); }
+
+.box-dialog { width: min(560px, 100%); }
+.box-dialog .bd { position: relative; }
+.box-stage { position: relative; display: block; width: fit-content; max-width: 100%; margin: 12px auto 0;
+  touch-action: none; user-select: none; -webkit-user-select: none; cursor: crosshair;
+  border-radius: 8px; overflow: hidden; background: var(--surface-2); }
+.box-stage img { display: block; max-width: 100%; max-height: 62dvh; pointer-events: none; }
+.box-rect { position: absolute; border: 2px solid #35e08a; cursor: move;
+  box-shadow: 0 0 0 9999px rgba(8, 18, 14, .55); }
+.box-rect[hidden] { display: none; }
+.box-rect i { position: absolute; width: 22px; height: 22px; border-radius: 50%; background: #35e08a;
+  border: 3px solid #0b1f17; margin: -11px; }
+.box-rect i[data-h="nw"] { left: 0; top: 0; cursor: nwse-resize; }
+.box-rect i[data-h="ne"] { left: 100%; top: 0; cursor: nesw-resize; }
+.box-rect i[data-h="sw"] { left: 0; top: 100%; cursor: nesw-resize; }
+.box-rect i[data-h="se"] { left: 100%; top: 100%; cursor: nwse-resize; }
+.box-state { min-height: 20px; margin: 10px 0 0; font-size: 13px; color: var(--muted); text-align: center; }

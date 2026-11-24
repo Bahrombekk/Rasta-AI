@@ -10,6 +10,7 @@ export default function Catalog() {
             <p id="sub">Mahsulotlar va AI uchun namuna rasmlari</p>
           </div>
           <div className="page-actions">
+            <button className="btn ghost" id="reindexAll" type="button" hidden><Icon name="refresh" />Qayta o‘rganish</button>
             <button className="btn ghost" id="export" disabled><Icon name="download" />CSV yuklash</button>
             <button className="btn primary" type="button" id="addBtn" hidden><Icon name="plus" />Mahsulot qo'shish</button>
           </div>
@@ -65,6 +66,11 @@ export default function Catalog() {
               <input className="input" id="barcode" inputMode="numeric" pattern={"[0-9]{4,32}"} maxLength="32" placeholder="4–32 ta raqam" autoComplete="off" /></label>
           </div>
           <div className="field" id="curWrap" hidden><span id="curLbl">Mavjud rasmlar</span>
+            <p className="shot-help" id="shotHelp">Yashil ramka — AI o‘rganadigan qism. Ramka mahsulotni noto‘g‘ri qamrasa, rasmni bosib to‘g‘rilang.</p>
+            <div className="tip shot-warn" id="relocateTip" hidden>
+              <span>Bu rasmlarda mahsulot hali fondan ajratilmagan — AI butun kadrni (fon bilan) o‘rgangan.</span>
+              <button className="btn" id="relocate" type="button">Mahsulotni ajratish</button>
+            </div>
             <div className="thumbs" id="cur"></div>
           </div>
           <div className="field" id="new-images"><span id="newLbl">Rasmlar</span>
@@ -76,13 +82,33 @@ export default function Catalog() {
             <input id="files" type="file" accept="image/*" multiple />
             <div className="thumbs" id="thumbs"></div>
           </div>
-          <div className="tip" id="tip">Har bir ta’m yoki hajm uchun alohida SKU yarating. Javon namunasini tahlil natijasidagi mahsulot ramkasidan ham qo‘shish mumkin.</div>
+          <div className="tip" id="tip">Mahsulotni <strong>old tomonidan</strong>, javonda turganidek suratga oling — yon yoki orqa tomon rasmlari noto‘g‘ri tanishga olib keladi. Har bir ta’m yoki hajm uchun alohida SKU yarating. Eng aniq namuna — tahlil natijasida javondagi mahsulot ramkasini bosib qo‘shilgani.</div>
           <div className="err" id="err" role="status"></div>
         </form>
         <div className="ft">
           <button className="btn ghost catalog-danger" id="delete-product" type="button" hidden>O‘chirish</button>
           <button className="btn ghost" id="cancel" type="button">Bekor qilish</button>
           <button className="btn primary" id="save" type="submit" form="form">Saqlash</button>
+        </div>
+      </dialog>
+
+      <dialog className="catalog-dialog box-dialog" id="boxEditor" aria-labelledby="boxTitle">
+        <div className="hd"><h2 id="boxTitle">Mahsulot chegarasi</h2><button className="iconbtn" id="boxClose" type="button" aria-label="Yopish"><Icon name="x" /></button></div>
+        <div className="bd" id="boxBody">
+          <p className="shot-help">AI faqat ramka ichidagi qismni o‘rganadi. Ramka mahsulotni to‘liq va ortiqcha fonsiz qamrasin: burchaklaridan torting yoki rasm ustida yangisini chizing.</p>
+          <div className="box-stage" id="boxStage">
+            <img id="boxImage" alt="Namuna rasmi" draggable="false" />
+            <div className="box-rect" id="boxRect" hidden><i data-h="nw"></i><i data-h="ne"></i><i data-h="sw"></i><i data-h="se"></i></div>
+          </div>
+          <p className="box-state" id="boxState" role="status"></p>
+          <div className="err" id="boxErr" role="alert"></div>
+        </div>
+        <div className="ft">
+          <button className="btn ghost" id="boxAuto" type="button">Avtomatik</button>
+          <button className="btn ghost" id="boxFull" type="button">Butun rasm</button>
+          <span style={{"flex": "1"}}></span>
+          <button className="btn ghost" id="boxCancel" type="button">Bekor qilish</button>
+          <button className="btn primary" id="boxSave" type="button">Saqlash</button>
         </div>
       </dialog>
     </>
