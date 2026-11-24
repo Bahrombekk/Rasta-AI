@@ -48,6 +48,43 @@
     document.body.append(t); setTimeout(() => t.remove(), 2400);
   };
 
+  // Bosqichли loading overlay. target — ustiga qo'yiladigan element (position:relative
+  // bo'ladi). stages — matnlar ro'yxati; ular navbatma-navbat ko'rsatiladi (oxirgida
+  // ushlanib turadi). opts.scan — javon skanerlash ko'rinishi (tahlil uchun).
+  // Qaytaradi: { stop() }.
+  window.rastaLoader = (target, stages, opts = {}) => {
+    if (!target) return { stop() {} };
+    const restore = getComputedStyle(target).position === "static";
+    if (restore) target.style.position = "relative";
+    const ov = document.createElement("div");
+    ov.className = "rasta-loader" + (opts.scan ? " scan" : "");
+    ov.setAttribute("role", "status");
+    ov.innerHTML =
+      `<div class="rl-visual">${opts.scan ? '<span class="rl-beam"></span>' : '<span class="rl-ring"></span>'}</div>`
+      + '<div class="rl-status"><span class="rl-dot"></span><span class="rl-text"></span></div>'
+      + '<div class="rl-bar"><span class="rl-fill"></span></div>'
+      + `<div class="rl-steps">${stages.map(s => `<span class="rl-step">${window.esc(s)}</span>`).join("")}</div>`;
+    target.appendChild(ov);
+    const text = ov.querySelector(".rl-text"), fill = ov.querySelector(".rl-fill");
+    const chips = [...ov.querySelectorAll(".rl-step")];
+    let i = 0;
+    const tick = () => {
+      text.textContent = stages[i] + "…";
+      chips.forEach((c, k) => { c.classList.toggle("done", k < i); c.classList.toggle("now", k === i); });
+      fill.style.width = Math.round((i + 1) / stages.length * 100) + "%";
+      i = Math.min(i + 1, stages.length - 1);
+    };
+    tick();
+    const timer = setInterval(tick, opts.interval || 700);
+    return {
+      stop() {
+        clearInterval(timer);
+        ov.classList.add("rl-out");
+        setTimeout(() => { ov.remove(); if (restore) target.style.position = ""; }, 180);
+      }
+    };
+  };
+
   const loginUrl = () => "/login?next=" + encodeURIComponent(location.pathname + location.search);
   window.rastaSession = fetch("/api/session", { cache: "no-store" })
     .then(r => { if (!r.ok) throw new Error(); return r.json(); })

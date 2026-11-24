@@ -242,6 +242,9 @@ export default function mountPage() {
       return;
     }
     lock(true); $("err").textContent = "";
+    const loader = window.rastaLoader($("form"), editing
+      ? ["Rasm o‘qilmoqda", "Belgilar ajratilmoqda", "Katalog yangilanmoqda"]
+      : ["Rasm o‘qilmoqda", "Belgilar ajratilmoqda", "Variantlar yaratilmoqda", "Katalogga yozilmoqda"]);
     const body = new FormData();
     for (const [key, value] of Object.entries(values)) body.set(key, value);
     const savedFiles = new FormData();
@@ -262,7 +265,7 @@ export default function mountPage() {
     } catch (error) {
       $("err").textContent = error.message;
       load();
-    } finally { lock(false); }
+    } finally { loader.stop(); lock(false); }
   };
 
   async function init() {

@@ -219,6 +219,9 @@ export default function mountPage() {
     analysis = request;
     const old = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Tahlil qilinmoqda…';
     $("err").textContent = "";
+    const loader = window.rastaLoader(cv.parentElement, [
+      "Rasm tayyorlanmoqda", "Mahsulotlar aniqlanmoqda", "Qatorlar belgilanmoqda",
+      "Katalog bilan solishtirilmoqda", "Sanalmoqda"], { scan: true });
     try {
       const r = await rastaFetch("/api/analyze", { method: "POST", body: fd, signal: request.signal });
       const d = await r.json().catch(() => null);
@@ -230,6 +233,7 @@ export default function mountPage() {
         $("pre").hidden = false;
       }
     } finally {
+      loader.stop();
       if (analysis === request) analysis = null;
       btn.disabled = false;
       btn.innerHTML = old;
@@ -414,6 +418,7 @@ export default function mountPage() {
       fd.append("name", $("teachName").value); fd.append("brand", $("teachBrand").value);
     } else fd.append("sku_id", $("teachSku").value);
     const b = $("teachGo"); b.disabled = true; b.innerHTML = '<span class="spin"></span> Qo\'shilmoqda…';
+    const loader = window.rastaLoader($("teach"), ["Namuna o‘qilmoqda", "Belgilar ajratilmoqda", "Katalogga qo‘shilmoqda"]);
     try {
       let r = await rastaFetch("/api/teach", { method: "POST", body: fd, headers: token() ? { "X-Admin-Token": token() } : {} });
       if (r.status === 401 && !(await rastaSession).enabled) {
@@ -426,7 +431,7 @@ export default function mountPage() {
       sel.clear(); $("teachName").value = ""; $("teachBrand").value = ""; products = [];
       await loadProducts(); teachUi(); analyze($("again"));
     } catch (e) { $("teachErr").textContent = e.message; }
-    finally { b.disabled = false; b.textContent = "Katalogga qo'shish"; }
+    finally { loader.stop(); b.disabled = false; b.textContent = "Katalogga qo'shish"; }
   };
 
   function setHl(sku) {
