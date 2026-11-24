@@ -34,3 +34,23 @@ def test_remote_inference_validates_signature_and_splits_batches(monkeypatch):
     assert calls == [32, 1]
     with pytest.raises(inference.InferenceUnavailable):
         inference.RemoteInference(Config({}), "http://worker", token)
+
+
+def test_locate_endpoint_and_fallback_for_old_service(monkeypatch):
+    cfg = Config({"embedder": {"model": "test"}})
+    token = "a" * 40
+    embedder = SimpleNamespace(dim=2, embed=lambda images: np.zeros((len(images), 2), dtype=np.float32))
+    locator = SimpleNamespace(locate=lambda image: (10, 20, 60, 90))
+    worker = create_ai_app(cfg, token, detector=SimpleNamespace(detect=lambda image: []),
+                           embedder=embedder, locator=locator)
+    monkeypatch.setattr(inference.requests, "Session", lambda: TestClient(worker, base_url="http://worker"))
+    remote = inference.RemoteInference(cfg, "http://worker", token)
+    image = np.zeros((100, 80, 3), dtype=np.uint8)
+    assert remote.locate(image) == (10, 20, 60, 90)
+
+    # lokator modeli yo'q: javon detektori qutilaridan asosiy mahsulot tanlanadi
+    plain = create_ai_app(cfg, token, embedder=embedder, locator=False,
+                          detector=SimpleNamespace(detect=lambda image: [Box(20, 20, 60, 80, .5)]))
+    monkeypatch.setattr(inference.requests, "Session", lambda: TestClient(plain, base_url="http://worker"))
+    box = inference.RemoteInference(cfg, "http://worker", token).locate(image)
+    assert box is not None and box[0] <= 20 and box[3] >= 80

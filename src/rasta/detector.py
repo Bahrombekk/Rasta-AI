@@ -247,6 +247,75 @@ def suppress_nested(boxes: list[Box], contain_thr: float = 0.8) -> list[Box]:
     return [b for b, k in zip(boxes, keep) if k]
 
 
+def merge_split_boxes(boxes: list[Box], iomin_thr: float = 0.5, x_iou: float = 0.6,
+                      max_union: float = 1.10, max_piece: float = 0.90, min_refs: int = 2,
+                      partner_thr: float = 0.3) -> list[Box]:
+    """Bitta baland mahsulotni yuqori/pastki ikki qutiga bo'lib yuborishni birlashtiradi.
+
+    Class-agnostic detektor baland kartonni ba'zan "tepa qismi" va "pastki qismi" deb
+    ikki marta topadi: qutilar kuchli ustma-ust tushadi, lekin biri ikkinchisining ichida
+    emas (suppress_nested ushlamaydi) — mahsulot ikki marta sanaladi.
+
+    Faqat ustma-ustlik bo'yicha birlashtirish XATO: muzlatgichda orqa qatordagi shisha
+    oldingisi bilan xuddi shunday ustma-ust tushadi (4 ta GT to'plamda recall -0.3..-0.6
+    punkt). Farqi — bo'lak TO'LIQ mahsulotdan past: shuning uchun juftlik faqat quyidagi
+    hollarda birlashtiriladi:
+      - IoMin >= iomin_thr va gorizontal qoplanish (x bo'yicha IoU) >= x_iou;
+      - shu balandlik zonasida "toza" (ustma-ust sherigi yo'q) kamida min_refs ta qo'shni
+        bor; ularning balandligi (90-pertsentil) — to'liq mahsulot o'lchovi;
+      - har ikki bo'lak shu o'lchovning max_piece qismidan past, birlashgani esa
+        max_union baravaridan oshmaydi.
+    O'lchov (395 rasm, ~27 000 GT quti): recall o'zgarmadi, precision +0.1 punkt; sok
+    javonida 5 ta bo'lingan kartonning 5 tasi birlashdi.
+    """
+    n = len(boxes)
+    if n < 3:
+        return list(boxes)
+    xyxy = np.array([[b.x1, b.y1, b.x2, b.y2] for b in boxes], dtype=float)
+    hgt = xyxy[:, 3] - xyxy[:, 1]
+    areas = np.maximum(0, xyxy[:, 2] - xyxy[:, 0]) * np.maximum(0, hgt)
+    ix = np.minimum(xyxy[:, None, 2], xyxy[None, :, 2]) - np.maximum(xyxy[:, None, 0], xyxy[None, :, 0])
+    iy = np.minimum(xyxy[:, None, 3], xyxy[None, :, 3]) - np.maximum(xyxy[:, None, 1], xyxy[None, :, 1])
+    inter = np.maximum(0, ix) * np.maximum(0, iy)
+    iomin = inter / np.maximum(1e-9, np.minimum(areas[:, None], areas[None, :]))
+    np.fill_diagonal(iomin, 0.0)
+    clean = iomin.max(axis=1) < partner_thr
+    parent = list(range(n))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i, j in zip(*np.where(np.triu(iomin >= iomin_thr, 1))):
+        union_w = max(xyxy[i, 2], xyxy[j, 2]) - min(xyxy[i, 0], xyxy[j, 0])
+        if ix[i, j] / max(union_w, 1e-9) < x_iou:
+            continue
+        uy1, uy2 = min(xyxy[i, 1], xyxy[j, 1]), max(xyxy[i, 3], xyxy[j, 3])
+        overlap = np.minimum(xyxy[:, 3], uy2) - np.maximum(xyxy[:, 1], uy1)
+        refs = clean & (overlap >= 0.5 * hgt)
+        if refs.sum() < min_refs:
+            continue
+        full = float(np.percentile(hgt[refs], 90))
+        if (uy2 - uy1) > max_union * full or max(hgt[i], hgt[j]) > max_piece * full:
+            continue
+        parent[find(int(j))] = find(int(i))
+
+    groups: dict[int, list[int]] = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+    out: list[Box] = []
+    for members in groups.values():
+        if len(members) == 1:
+            out.append(boxes[members[0]])
+            continue
+        x1 = min(boxes[m].x1 for m in members); y1 = min(boxes[m].y1 for m in members)
+        x2 = max(boxes[m].x2 for m in members); y2 = max(boxes[m].y2 for m in members)
+        out.append(Box(x1, y1, x2, y2, max(boxes[m].score for m in members)))
+    return out
+
+
 def drop_group_boxes(arr: np.ndarray, contain_thr: float = 0.8, cover_thr: float = 0.7,
                      grid: int = 32) -> np.ndarray:
     """Bir nechta mahsulotni o'rab olgan "guruh" qutilarini olib tashlaydi.

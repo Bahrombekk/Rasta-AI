@@ -196,17 +196,60 @@ def save_images(sku: str, imgs: list, prefix: str = "", max_side: Optional[int] 
     return saved
 
 
+def box_file(image_path: Path) -> Path:
+    """Namuna rasmidagi mahsulot qutisi saqlanadigan yondosh fayl (000.jpg -> 000.box.json)."""
+    return image_path.with_suffix(".box.json")
+
+
+def valid_box(box) -> Optional[list[float]]:
+    """0..1 normallashgan [x1,y1,x2,y2]; noto'g'ri bo'lsa ValueError. None — butun rasm."""
+    if box is None:
+        return None
+    if not isinstance(box, (list, tuple)) or len(box) != 4:
+        raise ValueError
+    x1, y1, x2, y2 = (float(v) for v in box)
+    if not all(np.isfinite([x1, y1, x2, y2])):
+        raise ValueError
+    x1, y1, x2, y2 = max(0.0, x1), max(0.0, y1), min(1.0, x2), min(1.0, y2)
+    if x2 - x1 < 0.03 or y2 - y1 < 0.03:
+        raise ValueError
+    return [round(x1, 4), round(y1, 4), round(x2, 4), round(y2, 4)]
+
+
+def read_box(image_path: Path) -> Optional[dict]:
+    """{"box": [...]|None, "auto": bool} yoki None (rasm hali tekshirilmagan / fayl buzilgan)."""
+    try:
+        data = json.loads(box_file(image_path).read_text(encoding="utf-8"))
+        return {"box": valid_box(data.get("box")), "auto": bool(data.get("auto", True))}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+
+
+def write_box(image_path: Path, box: Optional[list[float]], auto: bool) -> None:
+    box_file(image_path).write_text(json.dumps({"box": box, "auto": auto}), encoding="utf-8")
+
+
 def add_with_images(pipe, sku: str, name: str, imgs: list, brand: Optional[str],
                     prefix: str = "", max_side: Optional[int] = 800, **kw) -> int:
     """Avval rasmlar diskka, keyin vektorlar katalogga. Vektor qo'shish xato bersa —
     saqlangan rasmlar o'chiriladi: rasm va katalog bir-biridan ajralib qolmaydi
-    (qayta indekslash aynan shu rasmlardan qiladi)."""
+    (qayta indekslash aynan shu rasmlardan qiladi).
+
+    Katalog rasmlarida (prefix bo'sh) mahsulot kadrdan ajratib olinadi: quti yondosh
+    faylga yoziladi (katalogda ko'rsatiladi, operator to'g'rilashi mumkin) va embedding
+    shu qutidan olinadi. Javon crop'lari (prefix "c") allaqachon kesilgan.
+    """
+    boxes = None if prefix else [pipe.locate_product(im) for im in imgs]
     saved = save_images(sku, imgs, prefix=prefix, max_side=max_side)
     try:
-        return pipe.add_product(sku, name, imgs, brand=brand, **kw)
+        if boxes is not None:
+            for p, b in zip(saved, boxes):
+                write_box(p, b, auto=True)
+        return pipe.add_product(sku, name, imgs, brand=brand, boxes=boxes, **kw)
     except Exception:
         for p in saved:
             p.unlink(missing_ok=True)
+            box_file(p).unlink(missing_ok=True)
         raise
 
 
@@ -221,10 +264,18 @@ def rebuild_sku(pipe, sku: str, name: str, brand: Optional[str], extra: Optional
 
     crops = [f for f in files if f.stem.startswith("c")]
     shots = [f for f in files if not f.stem.startswith("c")]
+    shot_images = list(load(shots))
+    boxes = []
+    for path, image in zip(shots, shot_images):
+        saved = read_box(path)
+        if saved is None:                    # eski rasm: quti hali aniqlanmagan
+            saved = {"box": pipe.locate_product(image), "auto": True}
+            write_box(path, saved["box"], auto=True)
+        boxes.append(saved["box"])
     n = 0
     with pipe.catalog.replace_sku(sku):
         if shots:
-            n += pipe.add_product(sku, name, list(load(shots)), brand=brand, extra=extra)
+            n += pipe.add_product(sku, name, shot_images, brand=brand, extra=extra, boxes=boxes)
         if crops:
             n += pipe.add_product(sku, name, list(load(crops)), brand=brand, extra=extra,
                                   augment=False, source="crop")
@@ -441,10 +492,18 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
         pipe = get_pipe()
         with State.lock:
             v = product_or_404(pipe, sku)
+            images = []
+            for f in image_files(sku):
+                shelf = f.stem.startswith("c")
+                located = None if shelf else read_box(f)
+                images.append({"name": f.name, "url": f"/media/{sku}/{f.name}", "shelf": shelf,
+                               # located: mahsulot qutisi aniqlanganmi (eski rasmlarda yo'q —
+                               # qayta indekslash kerak); box None — butun rasm ishlatiladi
+                               "located": shelf or located is not None,
+                               "box": located["box"] if located else None,
+                               "auto": located["auto"] if located else True})
             return {"sku_id": sku, "name": v["name"], "brand": v.get("brand"), "vectors": v["count"],
-                    **catalog_metadata(v),
-                    "images": [{"name": f.name, "url": f"/media/{sku}/{f.name}",
-                                "shelf": f.stem.startswith("c")} for f in image_files(sku)]}
+                    **catalog_metadata(v), "images": images}
 
     @app.patch("/api/products/{sku}")
     def edit_product(sku: str, name: str = Form(...), brand: str = Form(""),
@@ -498,7 +557,54 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
                 bak.rename(f)
                 raise
             bak.unlink()
+            box_file(f).unlink(missing_ok=True)
         return {"sku_id": sku, "deleted": name, "vectors": n}
+
+    @app.post("/api/products/{sku}/reindex")
+    def reindex_product(sku: str, x_admin_token: Optional[str] = Header(None)):
+        """Bitta mahsulotni saqlangan rasmlaridan qayta o'rganish. Mahsulot qutisi hali
+        aniqlanmagan (eski) rasmlarda u avtomatik topiladi."""
+        check_admin(x_admin_token)
+        pipe = get_pipe()
+        with State.lock:
+            v = product_or_404(pipe, sku)
+            if not image_files(sku):
+                raise HTTPException(400, "Mahsulotda rasm yo'q")
+            n = rebuild_sku(pipe, sku, v["name"], v.get("brand"), catalog_metadata(v))
+        return {"sku_id": sku, "vectors": n}
+
+    @app.put("/api/products/{sku}/images/{name}/box")
+    def set_image_box(sku: str, name: str, box: str = Form(...),
+                      x_admin_token: Optional[str] = Header(None)):
+        """Namuna rasmidagi mahsulot qutisini qo'lda to'g'rilash. box — JSON: 0..1
+        normallashgan [x1,y1,x2,y2], "null" — butun rasm, "auto" — qayta avtomatik aniqlash.
+        SKU vektorlari shu zahoti qayta quriladi."""
+        check_admin(x_admin_token)
+        pipe = get_pipe()
+        with State.lock:
+            v = product_or_404(pipe, sku)
+            f = images_root() / sku / name
+            if f not in image_files(sku) or f.stem.startswith("c"):
+                raise HTTPException(404, "Rasm topilmadi")
+            sidecar = box_file(f)
+            previous = sidecar.read_bytes() if sidecar.exists() else None
+            try:
+                if box.strip() == "auto":
+                    sidecar.unlink(missing_ok=True)          # rebuild_sku qayta aniqlaydi
+                else:
+                    write_box(f, valid_box(json.loads(box)), auto=False)
+            except (ValueError, TypeError):
+                raise HTTPException(400, "Quti noto'g'ri")
+            try:
+                n = rebuild_sku(pipe, sku, v["name"], v.get("brand"), catalog_metadata(v))
+            except Exception:
+                if previous is None:
+                    sidecar.unlink(missing_ok=True)
+                else:
+                    sidecar.write_bytes(previous)
+                raise
+            saved = read_box(f) or {"box": None, "auto": True}
+        return {"sku_id": sku, "name": name, "vectors": n, **saved}
 
     @app.delete("/api/products/{sku}")
     def delete_product(sku: str, x_admin_token: Optional[str] = Header(None)):
@@ -509,6 +615,7 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
             pipe.catalog.delete_sku(sku)
             for f in image_files(sku):
                 f.unlink()
+                box_file(f).unlink(missing_ok=True)
         return {"deleted": sku}
 
     @app.post("/api/teach")

@@ -104,6 +104,13 @@ recognition:
   neg_exclude: 0.85
 
 onboarding:
+  # Fonli namuna fotosida (stol ustidagi mahsulot) mahsulotni kadrdan ajratib oluvchi
+  # matn so'rovli detektor. Faqat katalogga rasm qo'shilganda, birinchi murojaatda yuklanadi.
+  # Bo'sh qoldirilsa yoki model image'da bo'lmasa — javon detektori (ancha kuchsiz) ishlatiladi.
+  locator:
+    model: IDEA-Research/grounding-dino-tiny
+    conf: 0.25
+    max_side: 800
   # Yangi SKU uchun faqat 1 ta rasm (packshot) bo'lsa, undan realistik variantlar
   # (yorug'lik, oq balans, blur, kesish, JPEG) yaratiladi. 2+ real crop bo'lsa —
   # augmentatsiya qilinmaydi (aks holda boshqa qorong'i/xira obyektlar ham "tanilib"

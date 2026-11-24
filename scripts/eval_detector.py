@@ -21,7 +21,7 @@ import numpy as np
 
 from rasta.config import ROOT, Config, resolve_device, resolve_path
 from rasta.det_eval import evaluate
-from rasta.detector import build_detector, suppress_nested
+from rasta.detector import build_detector, merge_split_boxes, suppress_nested
 from rasta.imageio import load_image
 
 
@@ -49,6 +49,8 @@ def run_variant(cfg: Config, gts, device: str):
         boxes = det.detect(img)
         if cfg.get("detector.suppress_nested", True):
             boxes = suppress_nested(boxes, cfg.get("detector.contain_thr", 0.8))
+        if cfg.get("detector.merge_splits", True):
+            boxes = merge_split_boxes(boxes)
         t += time.perf_counter() - t0
         pred = np.array([[b.x1, b.y1, b.x2, b.y2, b.score] for b in boxes]).reshape(-1, 5)
         gt = np.array(g.get("boxes", []), dtype=float).reshape(-1, 4)

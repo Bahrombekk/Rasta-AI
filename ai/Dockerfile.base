@@ -35,3 +35,8 @@ RUN pip install -r requirements.txt
 RUN python -c "from huggingface_hub import snapshot_download as d; \
 [d(r, allow_patterns=['*.json', '*.safetensors', '*.model', '*.txt']) \
  for r in ('facebook/dinov2-base', 'google/siglip2-base-patch16-224')]"
+
+# Katalog namunasi fotosidan mahsulotni ajratuvchi model (alohida qatlam: yuqoridagi
+# qatlamlar keshdan olinadi, faqat shu ~0.7 GB yuklanadi)
+RUN python -c "from huggingface_hub import snapshot_download as d; \
+d('IDEA-Research/grounding-dino-tiny', allow_patterns=['*.json', '*.safetensors', '*.txt'])"

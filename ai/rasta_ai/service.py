@@ -11,7 +11,8 @@ from PIL import Image
 
 from rasta.catalog import embedder_signature
 from rasta.config import resolve_device
-from rasta.detector import build_detector
+from rasta.augment import pick_product_box
+from rasta.detector import build_detector, suppress_nested
 from rasta.embedder import build_embedder
 from rasta.inference import IMAGE_BATCH
 
@@ -31,7 +32,7 @@ def read_image(file: UploadFile):
         raise HTTPException(400, "Invalid inference image") from exc
 
 
-def create_ai_app(cfg, token, *, detector=None, embedder=None):
+def create_ai_app(cfg, token, *, detector=None, embedder=None, locator=None):
     if len(token) < 32:
         raise ValueError("RASTA_AI_TOKEN must contain at least 32 characters")
     device = resolve_device(cfg.get("device", "auto")) if detector is None or embedder is None else "test"
@@ -39,6 +40,7 @@ def create_ai_app(cfg, token, *, detector=None, embedder=None):
     embedder = build_embedder(cfg, device) if embedder is None else embedder
     info = {"dim": embedder.dim, "device": device, "signature": embedder_signature(cfg)}
     lock = threading.Lock()
+    state = {"locator": locator}        # None — hali yuklanmagan; False — mavjud emas
 
     def authenticate(x_rasta_ai_token: str = Header("")):
         if not hmac.compare_digest(x_rasta_ai_token.encode(), token.encode()):
@@ -61,6 +63,22 @@ def create_ai_app(cfg, token, *, detector=None, embedder=None):
             boxes = detector.detect(pixels)
         return {"boxes": [[float(b.x1), float(b.y1), float(b.x2), float(b.y2), float(b.score)]
                           for b in boxes]}
+
+    @app.post("/locate", dependencies=[Depends(authenticate)])
+    def locate(image: UploadFile = File(...)):
+        """Katalog namunasi fotosidagi asosiy mahsulot qutisi (piksel) yoki null."""
+        pixels = read_image(image)
+        with lock:
+            if state["locator"] is None:
+                from rasta.locator import build_locator
+                state["locator"] = build_locator(cfg, device) or False
+            if state["locator"]:
+                box = state["locator"].locate(pixels)
+            else:                           # lokator modeli image'da yo'q — javon detektori
+                h, w = pixels.shape[:2]
+                found = suppress_nested(detector.detect(pixels), cfg.get("detector.contain_thr", 0.8))
+                box = pick_product_box(found, w, h)
+        return {"box": [int(v) for v in box] if box else None}
 
     @app.post("/embed", dependencies=[Depends(authenticate)])
     def embed(images: list[UploadFile] = File(...)):

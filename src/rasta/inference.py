@@ -63,6 +63,20 @@ class RemoteInference:
         data = self._request("POST", "/detect", (3, 180), files={"image": self._file(image)})
         return [Box(*box) for box in data["boxes"]]
 
+    def locate(self, image):
+        """Namuna fotosidagi asosiy mahsulot: (x1,y1,x2,y2) piksel | None.
+        NotImplemented — AI xizmati eski (endpoint yo'q): chaqiruvchi zaxira yo'lni ishlatadi."""
+        try:
+            response = self.session.post(self.url + "/locate", timeout=(3, 180),
+                                         files={"image": self._file(image)})
+            if response.status_code == 404:
+                return NotImplemented
+            response.raise_for_status()
+            box = response.json().get("box")
+        except (requests.RequestException, ValueError) as exc:
+            raise InferenceUnavailable("AI xizmatiga ulanib bo‘lmadi.") from exc
+        return tuple(int(v) for v in box) if box else None
+
     def embed(self, images):
         batches = []
         for start in range(0, len(images), IMAGE_BATCH):

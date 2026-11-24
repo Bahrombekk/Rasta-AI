@@ -85,3 +85,34 @@ def test_app_logo_filter():
     img[10:120, 100:120] = (40, 200, 110)
     assert not is_app_logo(img, Box(100, 10, 120, 120))     # burchakda, lekin baland — mahsulot
     assert not is_app_logo(img, Box(15, 100, 85, 120))      # rangi yashil emas
+
+
+def test_merge_split_boxes_joins_carton_halves_but_not_overlapping_products():
+    from rasta.detector import merge_split_boxes
+    from rasta.types import Box
+
+    whole = [Box(x, 100, x + 90, 450, .5) for x in (0, 100, 200, 500, 600)]
+    # bitta karton ikki bo'lakda: tepa (100..360) va past (190..450) — birga to'liq balandlik
+    halves = [Box(300, 100, 395, 360, .4), Box(302, 190, 392, 450, .6)]
+    merged = merge_split_boxes(whole + halves)
+    assert len(merged) == len(whole) + 1
+    joined = max(merged, key=lambda b: b.score if 290 < b.x1 < 310 else -1)
+    assert (round(joined.y1), round(joined.y2), joined.score) == (100, 450, .6)
+
+    # orqa qatordagi mahsulot oldingisi bilan ustma-ust: har biri TO'LIQ balandlikda — tegilmaydi
+    behind = [Box(300, 100, 395, 450, .5), Box(302, 20, 392, 370, .5)]
+    assert len(merge_split_boxes(whole + behind)) == len(whole) + 2
+    # o'lchov uchun toza qo'shni yo'q — taxmin qilinmaydi
+    assert len(merge_split_boxes(halves)) == 2
+
+
+def test_pick_product_box_ignores_background_touching_the_frame():
+    from rasta.augment import pick_product_box
+    from rasta.types import Box
+
+    table = Box(0, 520, 600, 800, .55)            # tagidagi quti: uch chetga tegadi, yirik
+    product = Box(210, 120, 370, 660, .45)
+    poster = Box(50, 300, 160, 420, .4)
+    x1, y1, x2, y2 = pick_product_box([table, product, poster], 600, 800)
+    assert x1 <= 210 and y1 <= 120 and x2 >= 370 and y2 >= 660 and x2 - x1 < 200
+    assert pick_product_box([table], 600, 800) is None

@@ -25,7 +25,13 @@ class FakePipe:
         self.catalog = SkuCatalog(dim=4, path=":memory:", collection="web_t")
         self.regions = []
 
+    located = [0.25, 0.1, 0.75, 0.9]
+
+    def locate_product(self, image):
+        return self.located
+
     def add_product(self, sku, name, imgs, brand=None, **kw):
+        self.boxes = kw.get("boxes")
         v = np.eye(4, dtype=np.float32)[: len(imgs) % 4 + 1]
         return self.catalog.add_sku(sku, name, v, extra={**(kw.get("extra") or {}), "brand": brand})
 
@@ -91,6 +97,36 @@ def test_catalog_metadata_survives_photo_changes_and_reindex(client):
     assert (product["category"], product["barcode"]) == ("Ichimliklar", "001234")
     assert client.patch(sku, data={"name": "Cola 1L"}).json()["barcode"] == "001234"
     assert client.patch(sku, data={"name": "Cola 1L", "barcode": ""}).json()["barcode"] is None
+
+
+def test_reference_photo_box_is_stored_shown_and_editable(client, tmp_path):
+    sku = "/api/products/juice"
+    assert client.post("/api/products", data={"name": "Juice"},
+                       files=[("files", ("a.jpg", jpg(), "image/jpeg"))]).status_code == 200
+    pipe = web.State.pipe
+    assert pipe.boxes == [pipe.located]                       # embedding shu qutidan olinadi
+    image = client.get(sku).json()["images"][0]
+    assert (image["located"], image["box"], image["auto"]) == (True, pipe.located, True)
+
+    box = sku + "/images/000.jpg/box"
+    assert client.put(box, data={"box": "[0.1, 0.2, 0.6, 0.8]"}).json()["auto"] is False
+    assert pipe.boxes == [[0.1, 0.2, 0.6, 0.8]]               # qo'lda to'g'rilangan quti qayta o'rganildi
+    assert client.put(box, data={"box": "null"}).json()["box"] is None
+    assert pipe.boxes == [None]
+    for bad in ("[0.5, 0.5, 0.5, 0.9]", "[1, 2]", "oops"):
+        assert client.put(box, data={"box": bad}).status_code == 400
+    assert client.get(sku).json()["images"][0]["box"] is None  # xato so'rov holatni buzmaydi
+    restored = client.put(box, data={"box": "auto"}).json()
+    assert (restored["box"], restored["auto"]) == (pipe.located, True)
+    assert client.put(sku + "/images/missing.jpg/box", data={"box": "null"}).status_code == 404
+
+    # eski rasm (quti fayli yo'q): katalogda "ajratilmagan", qayta o'rganishda aniqlanadi
+    (tmp_path / "juice" / "000.box.json").unlink()
+    assert client.get(sku).json()["images"][0]["located"] is False
+    assert client.post(sku + "/reindex").status_code == 200
+    assert client.get(sku).json()["images"][0]["box"] == pipe.located
+    assert client.delete(sku).status_code == 200
+    assert not list((tmp_path / "juice").glob("*"))
 
 
 def test_product_add_list_delete(client):

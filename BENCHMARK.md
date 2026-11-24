@@ -258,3 +258,56 @@ tashlandi — 18/18 haqiqatan logotip, burchakdagi mahsulotlarga tegmadi.
 ### Litsenziya eslatmasi
 SKU-110K — faqat akademik/notijorat. Undan o'qitilgan og'irliklar (joriy model ham) tijoriy
 mahsulotda xavfli; o'z agent rasmlarida (52 000 ta, `data/external/aptash`) o'qitish kerak.
+
+---
+
+## 10. Katalog namunasi va bo'lingan qutilar — 2026-11-24
+
+### 10a. Namuna fotosidan mahsulotni ajratib olish
+Muammo: katalogga fonli foto (stol ustidagi mahsulot) yuklansa, butun kadr embedding
+qilinardi (faqat oq fonli packshot kesilardi). O'lchov — real do'kon javoni (78 mahsulot,
+11 ta DENA old tomoni ko'rinadi) va 5 ta real namuna fotosi, "DENA qatorida to'g'ri /
+boshqa joyda noto'g'ri tanilgan":
+
+| Katalog | To'g'ri | Noto'g'ri |
+|---|---|---|
+| Butun kadr, 5 foto (eski) | 4/11 | 0 |
+| Mahsulotgacha kesilgan, 5 foto | 9/11 | 4 |
+| Kesilgan, faqat OLD tomon (2 foto) | **9/11** | 2 |
+| Kesilgan, faqat YON/ORQA tomon (3 foto) | 0/11 | 2 |
+
+Xulosa: (1) kesish tanishni ikki barobardan ko'p oshiradi; (2) yon/orqa tomon fotolari
+foyda bermaydi, faqat noto'g'ri tanish qo'shadi — katalogga old tomon kerak; (3) bunday
+fotolar packshot kabi qo'shiladi (augmentatsiya + `sim_threshold_packshot`): "crop" deb
+(τ 0.76) qo'shilganda 0/11.
+
+Mahsulotni topish (6 ta real namuna fotosi, yaqindan olingan bitta mahsulot):
+
+| Usul | Topdi |
+|---|---|
+| Javon detektori (SKU-110K YOLO), 320–1280 px masshtablar | 1–2 / 6, beqaror; yon tomon 0 |
+| Grounding DINO base | 6/6 (RTX 5090: ~3–7 s/rasm) |
+| **Grounding DINO tiny** (`onboarding.locator`) | **6/6** (~1.2–1.8 s/rasm) |
+
+Tanlash qoidasi (`augment.pick_product_box`): kadrning ikki chetiga tegib turgan quti — fon
+(tagidagi quti, stol); qolganlaridan yirik, markaziy va ishonchlisi.
+
+### 10b. Bitta mahsulotning ikki qutiga bo'linishi
+Sok javonida baland kartonlarning 5 tasi "tepa" va "past" qutilarga bo'linib, ikki marta
+sanalgan. 395 ta GT rasm (~27 000 quti), `detector.merge_split_boxes`:
+
+| Qoida | gt_det R / P | f1 R / P | f2 R / P | sku110k R / P | Sok javonida birlashdi |
+|---|---|---|---|---|---|
+| O'chiq | 0.804 / 0.943 | 0.650 / 0.881 | 0.714 / 0.875 | 0.895 / 0.836 | 0/5 |
+| Faqat ustma-ustlik (IoMin ≥ 0.5) | 0.800 / 0.944 | 0.644 / 0.883 | 0.711 / 0.877 | 0.894 / 0.837 | 5/5 |
+| **Toza qo'shni o'lchovi bilan** (joriy) | 0.804 / 0.943 | 0.650 / 0.882 | 0.714 / 0.876 | 0.895 / 0.836 | **5/5** |
+
+Faqat ustma-ustlik bo'yicha birlashtirish muzlatgichlarda zarar: orqa qatordagi shisha
+oldingisi bilan xuddi shunday ustma-ust tushadi. Joriy qoida bo'lakni to'liq mahsulotdan
+ajratadi: har ikki quti shu qatordagi toza (sherigi yo'q) qo'shnilar balandligidan past,
+birlashgani esa shu balandlikka teng bo'lsagina birlashtiradi.
+
+### 10c. Sinab ko'rilib, qabul qilinmaganlar
+- SigLIP2-so400m ansambli: sintetik 100 javonda 0.553 → 0.534, 4 baravar sekin.
+- Qo'shnilar bo'yicha yorliq tarqatish (`context.propagate_blocks`): sintetikada foydasiz
+  (bloklar bir xil yoritilgan — "urug'" yo'q); standart holatda o'chiq.

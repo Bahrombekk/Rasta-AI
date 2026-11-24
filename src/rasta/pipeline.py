@@ -21,7 +21,7 @@ import numpy as np
 from .catalog import RecognitionParams, build_catalog
 from .config import Config, resolve_device
 from .context import smooth_with_context
-from .detector import build_detector, suppress_nested
+from .detector import build_detector, merge_split_boxes, suppress_nested
 from .embedder import build_embedder, crop_boxes
 from .features import aspect_ratio, color_descriptors, to_rgb_array
 from .imageio import load_image
@@ -43,6 +43,7 @@ class RastaPipeline:
             self.detector = self.embedder = inference
         self.catalog = build_catalog(self.cfg, dim=self.embedder.dim)
         self.params = RecognitionParams.from_cfg(self.cfg)
+        self._locator = None            # namuna fotosi lokatori: birinchi murojaatda yuklanadi
 
     # ---- Katalog onboarding ----------------------------------------------
 
@@ -57,9 +58,43 @@ class RastaPipeline:
         asps = [aspect_ratio(a.shape[0], a.shape[1]) for a in arrs]
         return vecs, cols, asps
 
+    def locate_product(self, image) -> Optional[list[float]]:
+        """Namuna rasmidagi mahsulot qutisi, 0..1 normallashgan [x1,y1,x2,y2]; None — butun rasm.
+
+        Bir xil (oq) fonli packshot — fon bo'yicha; fonli real foto (stol ustida, qo'lda) —
+        mahsulot lokatori (matn so'rovli detektor), u bo'lmasa javon detektori bo'yicha.
+        """
+        from .augment import packshot_box
+        a = to_rgb_array(image)
+        h, w = a.shape[:2]
+        box, is_packshot = packshot_box(a)
+        if box is None and not is_packshot:
+            box = self._locate_in_photo(a)
+        if box is None:
+            return None
+        x1, y1, x2, y2 = box
+        return [round(x1 / w, 4), round(y1 / h, 4), round(x2 / w, 4), round(y2 / h, 4)]
+
+    def _locate_in_photo(self, a: np.ndarray):
+        from .augment import pick_product_box
+        if hasattr(self.detector, "locate"):            # masofaviy AI xizmati
+            found = self.detector.locate(a)
+            if found is not NotImplemented:
+                return found
+        elif self._locator is not False:
+            if self._locator is None:
+                from .locator import build_locator
+                self._locator = build_locator(self.cfg, self.device) or False
+            if self._locator:
+                return self._locator.locate(a)
+        h, w = a.shape[:2]
+        found = suppress_nested(self.detector.detect(a), self.cfg.get("detector.contain_thr", 0.8))
+        return pick_product_box(found, w, h)
+
     def add_product(self, sku_id: str, name: str, images: list,
                     brand: Optional[str] = None, extra: Optional[dict] = None,
-                    augment: Optional[bool] = None, source: Optional[str] = None) -> int:
+                    augment: Optional[bool] = None, source: Optional[str] = None,
+                    boxes: Optional[list] = None) -> int:
         """Few-shot onboarding: rasmlar -> katalog (embedding + rang + shakl).
 
         Rasm kam bo'lsa (onboarding.augment_if_fewer dan kam — standart: faqat
@@ -69,16 +104,29 @@ class RastaPipeline:
         katalogni "yopishqoq" qiladi (drinks_aisle'da 29 ta noto'g'ri tanish).
         source: "packshot" | "crop" — qaysi chegara (τ) qo'llanishini belgilaydi;
         berilmasa: augmentatsiya qilingan yolg'iz rasm -> packshot, aks holda crop.
+        boxes: har rasm uchun mahsulot qutisi (0..1 normallashgan [x1,y1,x2,y2]) yoki None —
+        locate_product() natijasi yoki operator qo'lda to'g'rilagan quti; rasm shu
+        qutigacha kesiladi (fonli namuna fotolari uchun hal qiluvchi).
         """
         # Bir xil (oq) fonli katalog rasmlari mahsulot chegarasigacha kesiladi va
         # packshot deb belgilanadi (internet rasmlarida mahsulot ko'pincha kichik:
         # real muzlatgich sinovida o'xshashlik 0.60 -> 0.82, tanish 0/27 -> 24/27).
+        if boxes is not None and len(boxes) != len(images):
+            raise ValueError("boxes va images uzunligi bir xil bo'lishi kerak")
         if source != "crop" and self.cfg.get("onboarding.packshot_crop", True):
-            from .augment import packshot_crop
+            from .augment import crop_normalized, packshot_crop
             res = [packshot_crop(im) for im in images]
-            images = [r[0] for r in res]
-            if source is None and sum(r[1] for r in res) * 2 > len(res):
+            images = [r[0] if boxes is None or boxes[i] is None else crop_normalized(im, boxes[i])
+                      for i, (im, r) in enumerate(zip(images, res))]
+            # Kadrdan ajratib olingan namuna fotosi ham packshot kabi: javondan tashqarida,
+            # boshqa yorug'likda olingan — augmentatsiya va packshot chegarasi (τ) kerak
+            # (real sinov: 5 foto birga "crop" deb qo'shilganda 0/11, packshot kabi — 9/11).
+            studio = [r[1] or (boxes is not None and boxes[i] is not None) for i, r in enumerate(res)]
+            if source is None and sum(studio) * 2 > len(studio):
                 source = "packshot"
+        elif boxes is not None:
+            from .augment import crop_normalized
+            images = [im if b is None else crop_normalized(im, b) for im, b in zip(images, boxes)]
         n_aug = int(self.cfg.get("onboarding.augment", 16) or 0)
         few = len(images) < int(self.cfg.get("onboarding.augment_if_fewer", 2))
         augmented = augment is not False and n_aug > 1 and (augment or few or source == "packshot")
@@ -116,6 +164,8 @@ class RastaPipeline:
         boxes = self.detector.detect(detect_image if detect_image is not None else image)
         if cfg.get("detector.suppress_nested", True):
             boxes = suppress_nested(boxes, cfg.get("detector.contain_thr", 0.8))
+        if cfg.get("detector.merge_splits", True):
+            boxes = merge_split_boxes(boxes)
         if roi_mask is not None:
             from .roi import inside_fraction
             min_in = cfg.get("roi.min_inside", 0.5)
