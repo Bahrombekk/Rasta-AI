@@ -98,6 +98,8 @@ docker compose exec backend python scripts/manage_users.py superadmin --role sup
 Brauzerda **http://127.0.0.1:8090/login** ni oching. Super admin **Korxonalar** sahifasida korxona va uning birinchi adminini yaratadi. Korxona admini birinchi do‘kon va operatorni qo‘shadi. Compose portini `RASTA_PORT` orqali sozlash mumkin.
 
 - `rasta-catalog`, `rasta-images` va `rasta-accounts` volume’larini birga zaxiralang. `docker compose down -v` ularni o‘chiradi.
+- Yangilash: `git pull`, so‘ng `docker compose up -d --build`. `ai/Dockerfile.base` o‘zgargan bo‘lsa (yangi model qo‘shilgan) avval `docker build -f ai/Dockerfile.base -t rasta-ai-base:1 .` ni qayta bajaring — faqat yangi qatlam yuklanadi. Tanish mantig‘i yoki embedding o‘zgarganda korxona admini katalogda **Qayta o‘rganish** ni bosadi.
+- Tahlil qilingan har rasm va detektor qutilari `rasta-archive` volume’iga yoziladi (o‘z detektoringizni o‘qitish uchun: `tools/box_editor.html` → `scripts/export_yolo.py`). O‘chirish: `.env` da `RASTA_ARCHIVE=0`.
 - Xizmat loglari uchun `docker compose logs -f frontend backend ai` ishlating. Tayyorlik holati `/api/health` da ko‘rinadi.
 - Domen bilan chiqarishda frontendni HTTPS reverse proxy ortiga joylashtiring va `RASTA_SECURE_COOKIES=1` belgilang.
 - Lokal frontend uchun Node.js 22.12+ bilan `npm --prefix frontend ci` va `npm --prefix frontend run dev` ni bajaring. Vite API so‘rovlarini odatda `127.0.0.1:8000` ga uzatadi. FastAPI’ni `python scripts/serve.py --api-only` orqali oching. Bitta portda ishlatish uchun frontendni `npm --prefix frontend run build` bilan yig‘ing va `python scripts/serve.py` ni ishga tushiring.
