@@ -47,13 +47,34 @@ def _overlap_ratio(a: Gap, b: Gap) -> float:
     return ov / denom if denom > 0 else 0.0
 
 
+def _extent_iou(a: Gap, b: Gap) -> float:
+    """Ikki bo'shliqning x bo'yicha IoU'si: joyi HAM, kengligi HAM o'xshash bo'lsa yuqori."""
+    ov = max(0.0, min(a.x2, b.x2) - max(a.x1, b.x1))
+    union = max(a.x2, b.x2) - min(a.x1, b.x1)
+    return ov / union if union > 0 else 0.0
+
+
 def _filter_dividers(
     gaps: list[Gap],
     num_rows: int,
     divider_row_frac: float,
-    align_ratio: float = 0.35,
+    align_iou: float = 0.5,
+    edge_sides: dict[int, str] | None = None,
+    edge_align: float = 0.35,
 ) -> tuple[list[Gap], list[Gap]]:
     """Qatorlar bo'ylab vertikal moslashgan bo'shliqlarni (bo'linma) ajratadi.
+
+    Bo'linma (ustun, seksiya oralig'i) — tuzilma: barcha qatorlarda bir joyda VA bir xil
+    kenglikda bo'ladi, shuning uchun moslik x bo'yicha IoU bilan o'lchanadi. Ilgari
+    "kichigiga nisbatan qoplanish" ishlatilardi: bitta keng bo'shliq boshqa qatorlardagi
+    istalgan tor bo'shliq bilan "moslashib", hammasini bo'linma qilib yuborardi (real
+    javonda 16 ta soxta bo'linma).
+
+    Istisno — qator BOSHI/OXIRIDAGI bo'shliqlar (edge_sides: id(gap) -> "left" | "right"):
+    ular javon kengligini taxmin qilishdan kelib chiqadi va ko'pincha javon ramkasi
+    (yon ustun, qo'shni seksiya cheti) bo'ladi. Bir tomondagi chet bo'shliqlari bir necha
+    qatorda takrorlansa — tuzilma; ularning kengligi qatordan qatorga farq qilishi mumkin,
+    shuning uchun yumshoqroq o'lchov (kichigiga nisbatan qoplanish) ishlatiladi.
 
     Qaytaradi: (haqiqiy_oos, bo'linmalar).
     """
@@ -61,15 +82,20 @@ def _filter_dividers(
         return gaps, []  # kam qatorda bo'linmani ishonchli aniqlab bo'lmaydi
 
     need_rows = max(3, int(np.ceil(num_rows * divider_row_frac)))
+    edge_sides = edge_sides or {}
+
+    def aligned(a: Gap, b: Gap) -> bool:
+        if _extent_iou(a, b) >= align_iou:
+            return True
+        side = edge_sides.get(id(a))
+        return side is not None and side == edge_sides.get(id(b)) and _overlap_ratio(a, b) >= edge_align
 
     real: list[Gap] = []
     dividers: list[Gap] = []
     for g in gaps:
         rows_hit = {g.row}
         for other in gaps:
-            if other is g:
-                continue
-            if _overlap_ratio(g, other) >= align_ratio:
+            if other is not g and aligned(g, other):
                 rows_hit.add(other.row)
         if len(rows_hit) >= need_rows:
             dividers.append(g)
@@ -133,6 +159,8 @@ def detect_gaps(
     divider_row_frac: float = 0.6,
     return_dividers: bool = False,
     use_shelf_extent: bool = True,
+    skip_rows: set[int] | None = None,
+    image_width: float | None = None,
 ):
     """Har bir javon qatoridagi bo'sh joylarni topadi (bo'linmalarni chiqarib).
 
@@ -142,15 +170,30 @@ def detect_gaps(
     Javon kengligi = qatorlar x1 ning 25-persentili .. x2 ning 75-persentili
     (bitta uzun/qisqa qator natijani buzmasligi uchun).
 
+    skip_rows: javon qatori bo'lmagan "qatorlar" (javon chetida turmagan narsalar) —
+    ulardan bo'sh joy hisoblanmaydi va ular javon kengligini belgilamaydi.
+
+    image_width berilsa, kadrning chap/o'ng cheti KESGAN mahsulotlar hisobga olinadi: ular
+    qo'shni seksiyaga tegishli bo'lishi mumkin, shuning uchun javon kengligini belgilamaydi,
+    va ular bilan birinchi to'liq mahsulot orasidagi joy (odatda javon ramkasi) bo'sh joy
+    deb ko'rsatilmaydi.
+
     return_dividers=True bo'lsa (real_oos, dividers) juftligini qaytaradi.
     """
     candidates: list[Gap] = []
+    edge_sides: dict[int, str] = {}     # qator boshi/oxiridagi bo'shliqlar
+    skip_rows = skip_rows or set()
+    lo_x = 0.005 * image_width if image_width else None
+    hi_x = 0.995 * image_width if image_width else None
+
+    def cut(d: Detection) -> bool:
+        return lo_x is not None and (d.box.x1 <= lo_x or d.box.x2 >= hi_x)
 
     shelf_x1 = shelf_x2 = None
     if use_shelf_extent:
         ext = []
         for row in range(num_rows):
-            rd = [d for d in detections if d.row == row]
+            rd = [d for d in detections if d.row == row and row not in skip_rows and not cut(d)]
             if len(rd) >= 3:
                 ext.append((min(d.box.x1 for d in rd), max(d.box.x2 for d in rd)))
         if len(ext) >= 2:
@@ -159,7 +202,7 @@ def detect_gaps(
 
     for row in range(num_rows):
         row_dets = [d for d in detections if d.row == row]
-        if len(row_dets) < 2:
+        if len(row_dets) < 2 or row in skip_rows:
             continue  # bitta mahsulotdan bo'sh joyni ishonchli o'lchab bo'lmaydi
 
         rx1, _, rx2, _ = row_bounds(detections, row)
@@ -175,20 +218,33 @@ def detect_gaps(
         min_gap = avg_w * min_gap_ratio
         margin = row_width * edge_margin
 
-        occupied = _merge_intervals([(d.box.x1, d.box.x2) for d in row_dets])
+        # Qo'shni qatorning baland mahsuloti shu qator balandligiga kirib turgan bo'lsa (har
+        # xil bo'yli mahsulotlar bitta javonda, ustma-ust terilgan qutilar) — u joy band.
+        band_h = max(ry2 - ry1, 1e-6)
+        intruders = [(d.box.x1, d.box.x2) for d in detections if d.row != row
+                     and min(d.box.y2, ry2) - max(d.box.y1, ry1) >= 0.4 * band_h]
+        occupied = _merge_intervals([(d.box.x1, d.box.x2) for d in row_dets] + intruders)
 
         # Band segmentlar orasidagi bo'shliqlar (chekka bo'shliqlarni hisobga olmaymiz)
         cursor = rx1 + margin
         limit = rx2 - margin
-        for seg_a, seg_b in occupied:
-            if seg_a - cursor >= min_gap:
+        # kadr cheti kesgan tor segment (bitta-ikki kesilgan mahsulot) yonidagi oraliq
+        cut_left = lo_x is not None and len(occupied) > 1 and occupied[0][0] <= lo_x             and occupied[0][1] - occupied[0][0] < 2 * avg_w
+        cut_right = hi_x is not None and len(occupied) > 1 and occupied[-1][1] >= hi_x             and occupied[-1][1] - occupied[-1][0] < 2 * avg_w
+        for k, (seg_a, seg_b) in enumerate(occupied):
+            beside_cut = (cut_left and k == 1) or (cut_right and k == len(occupied) - 1)
+            if seg_a - cursor >= min_gap and not beside_cut:
                 candidates.append(_make_gap(row, cursor, seg_a, ry1, ry2, avg_w))
+                if k == 0:
+                    edge_sides[id(candidates[-1])] = "left"
             cursor = max(cursor, seg_b)
         # oxirgi band segmentdan qator oxirigacha
         if limit - cursor >= min_gap:
             candidates.append(_make_gap(row, cursor, limit, ry1, ry2, avg_w))
+            edge_sides[id(candidates[-1])] = "right"
 
-    real, dividers = _filter_dividers(candidates, num_rows, divider_row_frac)
+    real, dividers = _filter_dividers(candidates, num_rows - len(skip_rows), divider_row_frac,
+                                      edge_sides=edge_sides)
     for g in dividers:
         g.status = "divider"
 

@@ -73,6 +73,77 @@ def test_real_gap_kept():
     assert any(g.row == 1 for g in gaps), "haqiqiy bo'sh joy o'chirib yuborildi"
 
 
+def _shelf(rows):
+    """rows: [(y, [x, ...])] — 50x90 qutilar; qatorlar tayinlangan Detection ro'yxati."""
+    dets = [Detection(Box(x, y, x + 50, y + 90, 0.9)) for y, xs in rows for x in xs]
+    return dets, assign_rows(dets, 0.6)
+
+
+def test_wide_gap_does_not_turn_other_gaps_into_dividers():
+    """Bitta qatordagi keng bo'shliq boshqa qatorlardagi tor bo'shliqlar bilan "moslashib",
+    hammasini bo'linma qilib yubormasligi kerak (real javonda 16 ta soxta bo'linma)."""
+    full = [0, 60, 120, 180, 240, 300, 360, 420]
+    dets, nrows = _shelf([
+        (40, [0, 420]),                                  # deyarli bo'sh qator: 50..420 keng bo'shliq
+        (140, [x for x in full if x != 120]),            # har xil joyda bittadan bo'sh katak
+        (240, [x for x in full if x != 240]),
+        (340, [x for x in full if x != 360]),
+    ])
+    gaps, dividers = detect_gaps(dets, nrows, return_dividers=True)
+    assert dividers == []
+    assert sorted(g.row for g in gaps) == [0, 1, 2, 3]
+
+
+def test_taller_neighbour_row_occupies_the_gap():
+    """Qo'shni qatorning baland mahsuloti shu qator balandligida turgan joy bo'sh emas."""
+    dets, nrows = _shelf([(40, [0, 60, 240, 300]), (240, [0, 60, 120, 180, 240, 300])])
+    assert len(detect_gaps(dets, nrows)) == 1
+    dets.append(Detection(Box(120, 20, 230, 190, 0.9)))   # 120..230 ni to'ldiradigan baland quti
+    nrows = assign_rows(dets, 0.6)
+    assert [g for g in detect_gaps(dets, nrows) if g.row == 0] == []
+
+
+def test_gap_beside_a_frame_cut_product_is_not_reported():
+    """Kadr cheti kesgan mahsulot (qo'shni seksiya) bilan birinchi to'liq mahsulot orasi —
+    javon ramkasi; u bo'sh joy emas va javon kengligini ham belgilamaydi."""
+    rows = [(y, [100, 160, 220, 280, 340]) for y in (40, 140, 240, 340, 440)]
+    dets, _ = _shelf(rows)
+    dets.append(Detection(Box(0, 40, 14, 130, 0.9)))          # chapdan kesilgan mahsulot bo'lagi
+    nrows = assign_rows(dets, 0.6)
+    assert len(detect_gaps(dets, nrows)) == 1                 # rasm kengligi noma'lum: soxta bo'shliq
+    assert detect_gaps(dets, nrows, image_width=420) == []
+
+
+def test_cut_row_is_marked_only_when_much_shorter_than_its_neighbour():
+    from rasta.shelf import mark_cut_rows
+
+    stubs = [Detection(Box(x, 0, x + 50, 30, 0.9)) for x in (0, 60, 120, 180)]       # tepadan kesilgan
+    full = [Detection(Box(x, 100, x + 50, 220, 0.9)) for x in (0, 60, 120, 180)]
+    dets = stubs + full
+    nrows = assign_rows(dets, 0.6)
+    assert mark_cut_rows(dets, nrows, image_height=600) == {0}
+    tall = [Detection(Box(x, 0, x + 50, 110, 0.9)) for x in (0, 60, 120, 180)]       # chetga tegadi, lekin to'liq
+    dets = tall + [Detection(Box(x, 200, x + 50, 320, 0.9)) for x in (0, 60, 120, 180)]
+    assert mark_cut_rows(dets, assign_rows(dets, 0.6), image_height=600) == set()
+
+
+def test_size_veto_demotes_weak_matches_of_the_wrong_size():
+    from rasta.context import veto_size_outliers
+
+    def det(x, h, score):
+        d = Detection(Box(x, 0, x + 40, h, 0.9))
+        d.match = Match("juice", "Juice", score, 0.1, True, brand="J", level="sku")
+        return d
+
+    big = [det(x, 200, 0.75) for x in (0, 50, 100, 150)]
+    weak_small, strong_small = det(300, 95, 0.67), det(350, 95, 0.80)
+    assert veto_size_outliers(big + [weak_small, strong_small], sim_threshold=0.65) == 1
+    assert not weak_small.match.is_known and weak_small.match.sku_id is None
+    assert strong_small.match.is_known and all(d.match.is_known for d in big)
+    few = [det(0, 200, 0.7), det(50, 200, 0.7), det(100, 95, 0.66)]
+    assert veto_size_outliers(few, sim_threshold=0.65) == 0          # ko'pchilik yo'q — taxmin qilinmaydi
+
+
 def test_kpi():
     dets = _build()
     nrows = assign_rows(dets, 0.6)

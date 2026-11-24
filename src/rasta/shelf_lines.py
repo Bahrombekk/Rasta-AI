@@ -192,6 +192,15 @@ def find_empty_shelves(
         j, zh = zone_height(i)
         if j < 0 or i in seen_lower or not (0.6 * ref_h <= zh <= 3.0 * ref_h):
             continue
+        # Javon oralig'i o'sha joydagi mahsulot bo'yiga mos bo'ladi. Eng yaqin mahsulotli
+        # qatordagi mahsulotlardan ancha past "zona" — javon emas, taxta qalinligi yoki
+        # taxta bilan orqa reyka orasi (turli o'lchamli mahsulotli javonda global mediana
+        # mayda mahsulotlarga tortilib, bunday tirqishni "bo'sh javon" deb ko'rsatardi).
+        zone_mid = 0.5 * float(edges[i].y(W / 2) + edges[j].y(W / 2))
+        nearest = min(product_edges, key=lambda e: abs(float(edges[e].y(W / 2)) - zone_mid))
+        local_h = float(np.median([d.box.height for d in support[nearest]]))
+        if zh < 0.6 * local_h:
+            continue
         seen_lower.add(i)
         top, bot = edges[j], edges[i]
         zx1, zx2 = max(top.x1, bot.x1), min(top.x2, bot.x2)

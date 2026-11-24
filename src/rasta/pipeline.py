@@ -20,14 +20,14 @@ import numpy as np
 
 from .catalog import RecognitionParams, build_catalog
 from .config import Config, resolve_device
-from .context import smooth_with_context
+from .context import smooth_with_context, veto_size_outliers
 from .detector import build_detector, merge_split_boxes, suppress_nested
 from .embedder import build_embedder, crop_boxes
 from .features import aspect_ratio, color_descriptors, to_rgb_array
 from .imageio import load_image
 from .kpi import compute_kpi
 from .oos import detect_gaps, verify_gaps
-from .shelf import assign_rows, mark_background_rows, renumber_rows
+from .shelf import assign_rows, mark_background_rows, mark_cut_rows, renumber_rows
 from .types import AnalysisResult, Detection
 
 
@@ -183,6 +183,7 @@ class RastaPipeline:
         background: list[Detection] = []
         if cfg.get("shelf.drop_background_rows", True) and num_rows > 1:
             bg_rows = mark_background_rows(detections, num_rows)
+            bg_rows |= mark_cut_rows(detections, num_rows, h)
             if bg_rows:
                 background = [d for d in detections if d.row in bg_rows]
                 detections = [d for d in detections if d.row not in bg_rows]
@@ -224,6 +225,9 @@ class RastaPipeline:
                     params=self.params,
                 )
 
+        if cfg.get("recognition.size_veto", True) and detections:
+            veto_size_outliers(detections, params=self.params, sim_threshold=self.params.sim_threshold)
+
         # 6. Noma'lumlarni klasterlash
         clusters: dict = {}
         if cfg.get("clustering.enabled", True) and vectors is not None:
@@ -231,6 +235,19 @@ class RastaPipeline:
 
         # 7. OOS
         t3 = time.perf_counter()
+        # Sahna: javon chetlari. Javon chetida turmagan "qator" (poldagi narsalar, osma
+        # mahsulot) javon qatori emas — undan bo'sh joy va bo'linma hisoblanmaydi.
+        edges, scene_support, loose_rows = [], None, set()
+        if detections and (cfg.get("oos.empty_shelves", True) or cfg.get("oos.require_frontal", True)):
+            from .shelf_lines import detect_shelf_edges, find_empty_shelves, shelf_support
+            edges = detect_shelf_edges(image)
+            scene_support = shelf_support(edges, detections)
+            if edges:
+                min_row_support = cfg.get("oos.row_min_support", 0.5)
+                for r in range(num_rows):
+                    row_dets = [d for d in detections if d.row == r]
+                    if row_dets and shelf_support(edges, row_dets) < min_row_support:
+                        loose_rows.add(r)
         gaps, dividers = detect_gaps(
             detections,
             num_rows,
@@ -239,18 +256,17 @@ class RastaPipeline:
             divider_row_frac=cfg.get("oos.divider_row_frac", 0.6),
             use_shelf_extent=cfg.get("oos.use_shelf_extent", True),
             return_dividers=True,
+            skip_rows=loose_rows,
+            image_width=w,
         )
         suspects = []
         if cfg.get("oos.verify", True):
             gaps, suspects = verify_gaps(
                 image, gaps, detections, suspect_ratio=cfg.get("oos.suspect_ratio", 0.55))
         # Sahna tekshiruvi: frontal javonmi? (mahsulotlar javon chetida turadimi)
-        scene_support = None
-        if detections and (cfg.get("oos.empty_shelves", True) or cfg.get("oos.require_frontal", True)):
-            from .shelf_lines import detect_shelf_edges, find_empty_shelves, shelf_support
-            edges = detect_shelf_edges(image)
-            scene_support = shelf_support(edges, detections)
-            if cfg.get("oos.require_frontal", True) and not assume_frontal and                     scene_support < cfg.get("oos.frontal_min_support", 0.8):
+        if scene_support is not None:
+            if cfg.get("oos.require_frontal", True) and not assume_frontal and \
+                    scene_support < cfg.get("oos.frontal_min_support", 0.8):
                 # Yo'lak/ombor/qiya sahna: "qator" geometriyasi ishonchsiz — OOS emas, shubhali
                 for g in gaps:
                     g.status = "suspect"

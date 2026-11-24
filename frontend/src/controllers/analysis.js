@@ -42,7 +42,7 @@ export default function mountPage() {
   const gapLayers = [
     { key: "gaps", label: "Bo‘sh joy", color: "#dc2626", dash: [6, 4] },
     { key: "suspect_gaps", label: "Tekshirish kerak", color: "#d97706", dash: [5, 3] },
-    { key: "divider_gaps", label: "Ehtimoliy bo‘linma", color: "#2563eb", dash: [3, 3] },
+    { key: "divider_gaps", label: "Ehtimoliy bo‘linma", color: "#64748b", dash: [3, 3] },
   ];
 
   // ---------- rasm ----------

@@ -166,3 +166,47 @@ def propagate_identical(
                     fixed += 1
             i = j + 1
     return fixed
+
+
+def veto_size_outliers(
+    detections: list[Detection],
+    params: RecognitionParams | None = None,
+    sim_threshold: float = 0.0,
+    low: float = 0.6,
+    min_support: int = 3,
+    strong: float = 0.08,
+) -> int:
+    """Bitta rasmda bir SKU'ning barcha facing'lari deyarli bir xil bo'yda bo'ladi (bir xil
+    mahsulot, bir xil masofa). Ko'pchilikdan keskin kichik/katta VA chegaraga yaqin (kuchsiz)
+    mos kelgan quti — o'xshash rangli boshqa mahsulot: u noma'lumga qaytariladi.
+
+    Real misol: 1 litrli sok kartoni katalogi bilan undan ikki baravar kichik sariq bolalar
+    sharbati 0.65–0.67 o'xshashlik bilan "tanilgan". Kuchli mos kelganlarga (chegaradan
+    `strong` yuqori) tegilmaydi — qiya kadrda masshtab haqiqatan har xil bo'lishi mumkin.
+    Qaytaradi: bekor qilingan tanishlar soni.
+    """
+    groups: dict[str, list[Detection]] = {}
+    for d in detections:
+        m = d.match
+        if m and m.is_known and m.sku_id and m.level != "brand":
+            groups.setdefault(m.sku_id, []).append(d)
+    vetoed = 0
+    for members in groups.values():
+        if len(members) <= min_support:
+            continue
+        typical = float(np.median([d.box.height for d in members]))
+        for d in members:
+            ratio = d.box.height / max(typical, 1e-6)
+            if low <= ratio <= 1.0 / low:
+                continue
+            m = d.match
+            tau = sim_threshold
+            if params is not None and m.candidates:
+                tau = params.limits_for_source(m.candidates[0].get("src"))[0]
+            if m.score >= tau + strong:
+                continue
+            m.sku_id = m.name = m.brand = m.level = None
+            m.is_known = False
+            d.context_fixed = False
+            vetoed += 1
+    return vetoed

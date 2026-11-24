@@ -24,10 +24,14 @@ detector:
   # O'qitishsiz kuchaytirish (asosiy SKU-110K detektori uchun): bir nechta o'tish
   # (masshtablar, aks, bo'laklar) natijasi WBF bilan birlashtiriladi. Sekinroq
   # (o'tishlar soniga mutanosib). Ta'sirini o'lchash: scripts/eval_detector.py
+  # Standart: ikki masshtab (640 + 1280), akssiz. Yaqindan olingan yirik mahsulotlar
+  # (sok kartonlari) 1280 da o'tkazib yuboriladi, 640 da topiladi; mayda zich mahsulotlar —
+  # aksincha. 40 ta qo'lda tekshirilgan rasm: recall 0.80 -> 0.90, F1 0.87 -> 0.93
+  # (BENCHMARK.md 11-bo'lim). flip: true yana sekinlashtiradi, foydasi o'lchanmagan.
   tta:
-    enabled: false
+    enabled: true
     scales: [640, 1280]   # sku110k-yolo11-s 640 da o'qitilgan: ikkala masshtab
-    flip: true
+    flip: false
     tiles: 0              # 2 -> 2×2 bo'lak (mayda mahsulotli katta rasmlar uchun)
     tile_overlap: 0.25
     tile_imgsz: 640

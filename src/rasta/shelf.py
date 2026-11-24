@@ -87,6 +87,33 @@ def mark_background_rows(
     return bg
 
 
+def mark_cut_rows(
+    detections: list[Detection],
+    num_rows: int,
+    image_height: int,
+    edge_frac: float = 0.006,
+    touch_frac: float = 0.6,
+    height_ratio: float = 0.5,
+) -> set[int]:
+    """Kadr cheti kesib ketgan qatorlar: yuqoridagi javon mahsulotlarining pastki bo'lagi
+    (yoki pastdagisining tepasi). Belgisi — qutilarining ko'pi rasm chetiga tegadi VA ular
+    qo'shni qatordagidan ancha past (to'liq ko'ringan qator esa chetga tegsa ham o'z
+    bo'yida bo'ladi). Bunday bo'laklar tanilmaydi, sanalmaydi va bo'sh joy bermaydi."""
+    rows = {r: [d for d in detections if d.row == r] for r in range(num_rows)}
+    cut: set[int] = set()
+    for r, ds in rows.items():
+        if not ds:
+            continue
+        top = float(np.mean([d.box.y1 <= edge_frac * image_height for d in ds]))
+        bottom = float(np.mean([d.box.y2 >= (1 - edge_frac) * image_height for d in ds]))
+        if max(top, bottom) < touch_frac:
+            continue
+        neighbour = rows.get(r + 1 if top >= bottom else r - 1)
+        if neighbour and _band(ds)[2] < height_ratio * _band(neighbour)[2]:
+            cut.add(r)
+    return cut
+
+
 def renumber_rows(detections: list[Detection]) -> int:
     """Qator indekslarini 0..N-1 qilib qayta raqamlaydi (yuqoridan pastga)."""
     rows = sorted({d.row for d in detections})
