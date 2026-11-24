@@ -150,6 +150,28 @@ def test_analyzed_photos_are_archived_once_with_draft_boxes(client, tmp_path):
         web.State.archive_dir = None
 
 
+def test_explain_reports_why_a_box_was_or_was_not_recognised():
+    from rasta.catalog import RecognitionParams
+
+    params = RecognitionParams(sim_threshold=0.76, sim_threshold_packshot=0.65, min_margin=0.02)
+
+    def det(score, known, margin=0.2, **top):
+        d = Detection(Box(0, 0, 10, 20))
+        d.match = Match("juice" if known else None, "Juice" if known else None, score, margin, known,
+                        candidates=[{"sku_id": "juice", "name": "Juice", "score": score, "src": "packshot", **top}])
+        return d
+
+    assert web.explain(det(0.71, True), params) == {"n": "Juice", "sc": 0.71, "tau": 0.65, "m": 0.2, "r": "ok"}
+    assert web.explain(det(0.60, False), params)["r"] == "low"
+    assert web.explain(det(0.70, False, color=0.1), RecognitionParams(
+        sim_threshold_packshot=0.65, color_min_packshot=0.5))["r"] == "color"
+    assert web.explain(det(0.70, False, neg=0.80), RecognitionParams(
+        sim_threshold_packshot=0.65, neg_margin_packshot=0.03))["r"] == "other"
+    assert web.explain(det(0.70, False, margin=0.0), params)["r"] == "ambiguous"
+    assert web.explain(det(0.70, False), params)["r"] == "size"                # barcha shartlar o'tgan, lekin bekor qilingan
+    assert web.explain(Detection(Box(0, 0, 1, 1)), params) == {"r": "empty"}
+
+
 def test_product_add_list_delete(client):
     r = client.post("/api/products", data={"name": "Coca-Cola 1.5L", "brand": "Coca-Cola"},
                     files=[("files", ("a.jpg", jpg(), "image/jpeg"))])

@@ -336,7 +336,41 @@ def color_map(result) -> dict[str, str]:
     return {sku: (PALETTE[i] if i < len(PALETTE) else OTHER) for i, sku in enumerate(order)}
 
 
-def geometry(result) -> dict:
+def explain(d, params) -> dict:
+    """Nega tanildi / tanilmadi — operator uchun qisqa izoh ma'lumoti.
+
+    r: ok | context (qo'shnilar bo'yicha) | brand (faqat brend) | empty (katalog bo'sh) |
+       low (o'xshashlik chegaradan past) | color (rang mos emas) | other (katalogda yo'q
+       boshqa mahsulotga ko'proq o'xshaydi) | ambiguous (ikki SKU orasida) | size (o'lchami
+       shu SKU'ning boshqa donalaridan farq qiladi).
+    n — eng yaqin mahsulot, sc — o'xshashlik, tau — chegara, m — 2-nomzoddan farq.
+    """
+    m = d.match
+    top = m.candidates[0] if (m is not None and m.candidates) else None
+    if top is None:
+        return {"r": "empty"}
+    tau, color_min, neg_margin = params.limits_for_source(top.get("src"))
+    info = {"n": m.name if m.is_known else top.get("name"), "sc": round(float(m.score), 3),
+            "tau": round(float(tau), 3), "m": round(float(m.margin), 3)}
+    neg = top.get("neg")
+    if m.is_known:
+        info["r"] = "context" if d.context_fixed else "ok"
+    elif m.level == "brand":
+        info["r"] = "brand"
+    elif m.score < tau:
+        info["r"] = "low"
+    elif float(top.get("color", 1.0)) < color_min:
+        info["r"], info["c"] = "color", round(float(top.get("color", 0.0)), 3)
+    elif neg is not None and neg_margin is not None and m.score < neg - neg_margin:
+        info["r"] = "other"
+    elif m.margin < params.min_margin:
+        info["r"] = "ambiguous"
+    else:
+        info["r"] = "size"
+    return info
+
+
+def geometry(result, params=None) -> dict:
     """Brauzer mahsulotlar, bo'sh joylar va zonani chizishi uchun koordinatalar.
 
     Koordinatalar tahlil qilingan rasm pikselida (javobdagi "size").
@@ -345,11 +379,14 @@ def geometry(result) -> dict:
     dets = []
     for d in result.detections:
         m = d.match
-        dets.append({
+        item = {
             "b": [r1(d.box.x1), r1(d.box.y1), r1(d.box.x2), r1(d.box.y2)],
             "s": m.sku_id if (m and m.is_known) else None,
             "brand": m.brand if (m and m.level == "brand") else None,
-        })
+        }
+        if params is not None:
+            item["why"] = explain(d, params)
+        dets.append(item)
     def gap_boxes(gaps):
         return [[r1(g.x1), r1(g.y1), r1(g.x2), r1(g.y2)] for g in gaps]
 
@@ -773,7 +810,8 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
                    else pipe.analyze_image(img))
             summary = summarize(res, color_map(res))
         archive_analysis(upload, img, res)
-        data = {"summary": summary, **geometry(res), "size": [int(img.shape[1]), int(img.shape[0])]}
+        data = {"summary": summary, **geometry(res, getattr(pipe, "params", None)),
+                "size": [int(img.shape[1]), int(img.shape[0])]}
         if workspaces is not None:
             with io.BytesIO() as buf:
                 Image.fromarray(img).save(buf, "JPEG", quality=90)

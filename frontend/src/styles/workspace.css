@@ -417,3 +417,4 @@ a.field-row:hover, .store-stat-card:hover { color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   .rl-beam, .rl-det, .rl-tick, .rl-dot, .rl-shine::before, .rl-node, .rl-ring { animation: none; }
 }
+.why-card #whyText { margin: 0; font-size: 14px; line-height: 1.45; color: var(--ink); }

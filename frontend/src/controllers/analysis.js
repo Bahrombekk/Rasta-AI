@@ -39,6 +39,25 @@ export default function mountPage() {
     }
   }
   const sel = new Set();          // o'rgatish uchun tanlangan qutilar
+  let picked = -1;                // oxirgi bosilgan quti (nega tanildi/tanilmadi izohi uchun)
+  function whyUi() {
+    const why = picked >= 0 && R ? R.detections[picked]?.why : null;
+    $("why").hidden = !why;
+    if (!why) return;
+    const pct = value => Math.round(value * 100) + "%";
+    const near = why.n ? `eng yaqin mahsulot — ${why.n}, o‘xshashlik ${pct(why.sc)} (chegara ${pct(why.tau)})` : "";
+    $("whyText").textContent = ({
+      ok: `Tanildi: ${why.n}. O‘xshashlik ${pct(why.sc)}, chegara ${pct(why.tau)}.`,
+      context: `Qo‘shni mahsulotlarga qarab tanildi: ${why.n} (o‘xshashlik ${pct(why.sc)}, chegara ${pct(why.tau)}).`,
+      brand: `Faqat brend aniqlandi: ikki o‘xshash mahsulot orasida farq juda kichik (${pct(why.m)}).`,
+      empty: "Katalog bo‘sh — taqqoslash uchun mahsulot yo‘q.",
+      low: `Tanilmadi: ${near}. Bu mahsulot katalogda yo‘q yoki uning namunasi yetarli emas.`,
+      color: `Tanilmadi: ${near}, lekin rangi mos kelmadi (${pct(why.c ?? 0)}).`,
+      other: `Tanilmadi: ${near}, lekin u katalogda yo‘q boshqa mahsulotga ko‘proq o‘xshaydi.`,
+      ambiguous: `Tanilmadi: ${near}, lekin ikkinchi nomzoddan farqi juda kichik (${pct(why.m)}).`,
+      size: `Tanilmadi: ${near}, lekin o‘lchami shu mahsulotning rasmdagi boshqa donalaridan keskin farq qiladi.`,
+    })[why.r] || "";
+  }
   const gapLayers = [
     { key: "gaps", label: "Bo‘sh joy", color: "#dc2626", dash: [6, 4] },
     { key: "suspect_gaps", label: "Tekshirish kerak", color: "#d97706", dash: [5, 3] },
@@ -140,6 +159,10 @@ export default function mountPage() {
         ctx.lineWidth = hl && on ? lw * 1.8 : lw * 1.2; ctx.strokeStyle = col;
         ctx.strokeRect(x1, y1, x2 - x1, y2 - y1); ctx.globalAlpha = 1;
       });
+      if (picked >= 0 && !sel.has(picked) && R.detections[picked]) {
+        const [x1, y1, x2, y2] = scaledBox(R.detections[picked].b);
+        ctx.lineWidth = lw * 2; ctx.strokeStyle = "#f8fafc"; ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+      }
       sel.forEach(i => {
         const [x1, y1, x2, y2] = scaledBox(R.detections[i].b);
         ctx.fillStyle = "rgba(16,185,129,.28)"; ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
@@ -169,8 +192,8 @@ export default function mountPage() {
   function resetResult() {
     analysis?.abort();
     phase("photo");
-    sel.clear();
-    $("teach").hidden = true;
+    sel.clear(); picked = -1;
+    $("teach").hidden = true; $("why").hidden = true;
     $("gapLegend").hidden = true;
     if (R) { R = null; hl = null; $("res").hidden = true; $("pre").hidden = false; $("boxesBtn").hidden = true; }
   }
@@ -178,7 +201,7 @@ export default function mountPage() {
   $("zoneClear").onclick = () => { resetResult(); drawing = false; pts = []; closed = false; ui(); draw(); };
   cv.addEventListener("click", e => {
     if (!drawing) {
-      if (!R || !showBoxes || !canTeach) return;
+      if (!R || !showBoxes) return;
       const r = cv.getBoundingClientRect(), s = k();
       const x = (e.clientX - r.left) * s / R.scale[0], y = (e.clientY - r.top) * s / R.scale[1];
       let best = -1, area = Infinity;
@@ -187,8 +210,10 @@ export default function mountPage() {
         if (x >= x1 && x <= x2 && y >= y1 && y <= y2 && a < area) { best = i; area = a; }
       });
       if (best < 0) return;
-      sel.has(best) ? sel.delete(best) : sel.add(best);
-      teachUi(); draw();
+      picked = picked === best && !canTeach ? -1 : best;
+      whyUi();
+      if (canTeach) { sel.has(best) ? sel.delete(best) : sel.add(best); teachUi(); }
+      draw();
       return;
     }
     const r = cv.getBoundingClientRect(), s = k();
@@ -284,7 +309,7 @@ export default function mountPage() {
       .map(({ key, color, label }) => `<li><span style="--gap-color:${color}"></span>${label} · ${d[key].length}</li>`)
       .join("");
     $("gapLegend").hidden = !$("gapLegend").children.length;
-    sel.clear(); teachUi();
+    sel.clear(); picked = -1; teachUi(); whyUi();
     setupSubmission(d.report_id, d.visit_store_id);
 
     const tiles = [
@@ -409,7 +434,7 @@ export default function mountPage() {
       if (s0 && products.some(p => p.sku_id === s0)) $("teachSku").value = s0;
     }
   }
-  $("teachCancel").onclick = () => { sel.clear(); teachUi(); draw(); };
+  $("teachCancel").onclick = () => { sel.clear(); picked = -1; teachUi(); whyUi(); draw(); };
   $("teachGo").onclick = async () => {
     const fd = new FormData(); fd.append("image", file);
     fd.append("boxes", JSON.stringify([...sel].map(i => R.detections[i].b)));
