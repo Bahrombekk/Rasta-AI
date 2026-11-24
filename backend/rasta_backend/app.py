@@ -7,11 +7,13 @@ from __future__ import annotations
 
 from contextvars import ContextVar
 from copy import copy
+import hashlib
 import hmac
 import io
 import json
 import os
 import re
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -50,6 +52,7 @@ class State:
     inference: Optional[RemoteInference] = None
     organization_pipes = {}
     images_dir: Path = ROOT / "data" / "catalog_images"
+    archive_dir: Optional[Path] = None      # tahlil qilingan rasmlar arxivi (None — o'chiq)
     public = False      # server tarmoqqa ochiq (0.0.0.0) — parolsiz admin yopiladi
 
 
@@ -64,6 +67,8 @@ def _base_pipe():
                 State.pipe = RastaPipeline(State.cfg, inference=State.inference)
                 State.images_dir = resolve_path(State.cfg.get("web.images_dir",
                                                               "data/catalog_images"))
+                if os.environ.get("RASTA_ARCHIVE", "1") != "0":
+                    State.archive_dir = resolve_path(State.cfg.get("web.archive_dir", "data/archive"))
     return State.pipe
 
 
@@ -94,6 +99,50 @@ def images_root():
     if org_id in (None, 1):
         return State.images_dir
     return State.images_dir / ".organizations" / str(org_id)
+
+
+ARCHIVE_MIN_FREE = 5 * 1024 ** 3     # diskda shundan kam joy qolsa arxivlash to'xtaydi
+
+
+def archive_analysis(upload: bytes, img: np.ndarray, result) -> None:
+    """Tahlil qilingan rasmni va detektor qutilarini arxivga yozadi — keyinchalik o'z
+    rasmlarimizda kuchliroq (va tijoriy litsenziyali) detektor o'qitish uchun.
+
+    Format mavjud asboblarga mos: <xesh>.jpg + <xesh>.det.json (status "draft") —
+    tools/box_editor.html da tuzatiladi, scripts/export_yolo.py bilan o'qitishga chiqariladi.
+    Fayl nomi yuklangan rasm xeshi: qayta tahlil qilingan rasm takrorlanmaydi.
+    Arxivlashdagi xato tahlilni buzmaydi.
+    """
+    root = State.archive_dir
+    if root is None:
+        return
+    try:
+        org_id = organization_scope.get()
+        folder = root / (f"org_{org_id}" if org_id is not None else "default") / time.strftime("%Y-%m-%d")
+        folder.mkdir(parents=True, exist_ok=True)
+        if shutil.disk_usage(folder).free < ARCHIVE_MIN_FREE:
+            return
+        name = hashlib.sha1(upload).hexdigest()[:16]
+        photo = folder / f"{name}.jpg"
+        if not photo.exists():
+            Image.fromarray(img).save(photo, "JPEG", quality=90)
+        detections = list(result.detections) + list(result.background)
+        try:
+            image_ref = str(photo.relative_to(ROOT)).replace("\\", "/")
+        except ValueError:
+            image_ref = str(photo)
+        (folder / f"{name}.det.json").write_text(json.dumps({
+            "image": image_ref,
+            "status": "draft",
+            "size": [int(img.shape[1]), int(img.shape[0])],
+            "boxes": [[round(float(v), 1) for v in (d.box.x1, d.box.y1, d.box.x2, d.box.y2)] for d in detections],
+            "ignore": [],
+            "scores": [round(float(d.box.score), 3) for d in detections],
+            "labels": [d.match.sku_id if d.match is not None and d.match.is_known else None for d in detections],
+            "source": "analyze",
+        }, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
 
 
 def check_legacy_admin(token: Optional[str]):
@@ -695,7 +744,8 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
             visit = workspaces.field.own_visit(user, visit_id)
             if visit is None:
                 raise HTTPException(404, "Ochiq tashrif topilmadi.")
-        img = read_image(read_upload(image))
+        upload = read_upload(image)
+        img = read_image(upload)
         region = None
         if roi.strip():
             from rasta.roi import make_region
@@ -722,6 +772,7 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
             res = (pipe.analyze_region(img, region) if region is not None
                    else pipe.analyze_image(img))
             summary = summarize(res, color_map(res))
+        archive_analysis(upload, img, res)
         data = {"summary": summary, **geometry(res), "size": [int(img.shape[1]), int(img.shape[0])]}
         if workspaces is not None:
             with io.BytesIO() as buf:

@@ -129,6 +129,27 @@ def test_reference_photo_box_is_stored_shown_and_editable(client, tmp_path):
     assert not list((tmp_path / "juice").glob("*"))
 
 
+def test_analyzed_photos_are_archived_once_with_draft_boxes(client, tmp_path):
+    import json
+
+    web.State.archive_dir = tmp_path / "archive"
+    try:
+        photo = [("image", ("a.jpg", jpg(), "image/jpeg"))]
+        assert client.post("/api/analyze", files=photo).status_code == 200
+        assert client.post("/api/analyze", files=photo).status_code == 200      # qayta tahlil — takrorlanmaydi
+        images = list(web.State.archive_dir.rglob("*.jpg"))
+        assert len(images) == 1
+        draft = json.loads(images[0].with_suffix(".det.json").read_text(encoding="utf-8"))
+        assert draft["status"] == "draft" and len(draft["boxes"]) == 2
+        assert draft["labels"] == ["cola", None] and draft["size"] == [120, 100]
+        web.State.archive_dir = None                                             # o'chirilgan: hech narsa yozilmaydi
+        other = [("image", ("b.jpg", jpg(90, 80), "image/jpeg"))]
+        assert client.post("/api/analyze", files=other).status_code == 200
+        assert len(list((tmp_path / "archive").rglob("*.jpg"))) == 1
+    finally:
+        web.State.archive_dir = None
+
+
 def test_product_add_list_delete(client):
     r = client.post("/api/products", data={"name": "Coca-Cola 1.5L", "brand": "Coca-Cola"},
                     files=[("files", ("a.jpg", jpg(), "image/jpeg"))])

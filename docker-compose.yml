@@ -37,11 +37,13 @@ services:
       RASTA_DATABASE_URL: "${RASTA_DATABASE_URL:-}"
       RASTA_WORKSPACES: "1"
       RASTA_SECURE_COOKIES: "${RASTA_SECURE_COOKIES:-0}"
+      RASTA_ARCHIVE: "${RASTA_ARCHIVE:-1}"
       FORWARDED_ALLOW_IPS: "*"
     volumes:
       - rasta-catalog:/app/data/qdrant
       - rasta-images:/app/data/catalog_images
       - rasta-accounts:/app/data/accounts
+      - rasta-archive:/app/data/archive
       - ./models:/app/models:ro
     depends_on:
       ai:
@@ -81,5 +83,6 @@ volumes:
   rasta-catalog:
   rasta-images:
   rasta-accounts:
+  rasta-archive:
   caddy-data:
   caddy-config:
