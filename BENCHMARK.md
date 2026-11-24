@@ -311,3 +311,76 @@ birlashgani esa shu balandlikka teng bo'lsagina birlashtiradi.
 - SigLIP2-so400m ansambli: sintetik 100 javonda 0.553 → 0.534, 4 baravar sekin.
 - Qo'shnilar bo'yicha yorliq tarqatish (`context.propagate_blocks`): sintetikada foydasiz
   (bloklar bir xil yoritilgan — "urug'" yo'q); standart holatda o'chiq.
+
+---
+
+## 11. Real javonda qatorlar, bo'linmalar, detektor masshtabi — 2026-11-24/25
+
+Boshlang'ich holat (real do'kon javoni, 3 qavat, sok kartonlari): tizim 8 ta "qator" va 16 ta
+"ehtimoliy bo'linma" ko'rsatdi, 10 ta yirik kartondan 7 tasini topdi, 1 litrli karton
+katalogi bilan undan ikki baravar kichik qutilarni "tanidi".
+
+### 11a. Detektor: ikki masshtab (640 + 1280, WBF) — joriy standart
+`python scripts/eval_detector.py --gt data/<to'plam> --all --variant "..."`; recall / precision / F1:
+
+| Variant | gt_det (40, qo'lda) | gt_det_f1 (100) | gt_det_f2 (100) | SKU-110K (155) |
+|---|---|---|---|---|
+| Bitta masshtab 1280 (eski) | 0.804 / 0.943 / 0.868 | 0.650 / 0.882 / 0.749 | 0.714 / 0.876 / 0.787 | 0.895 / 0.836 / 0.864 |
+| **640 + 1280, WBF** | **0.900 / 0.959 / 0.928** | **0.683 / 0.877 / 0.768** | **0.744 / 0.879 / 0.806** | 0.917 / 0.816 / 0.863 |
+| 640 + 1280, "to'ldirish" (asosiy o'tish qutilariga tegmasdan) | 0.883 / 0.936 / 0.909 | 0.672 / 0.862 / 0.755 | 0.732 / 0.863 / 0.792 | 0.912 / 0.821 / 0.864 |
+| Bitta masshtab 960 | 0.730 / 0.886 / 0.800 | 0.665 / 0.909 / 0.768 | 0.726 / 0.916 / 0.810 | 0.901 / 0.864 / 0.882 |
+| YOLOv8-L SKU-110K (sbfisher), 640 + 1280 | 0.822 / 0.656 / 0.730 | — | — | — |
+
+Yaqindan olingan yirik mahsulot 1280 da o'tkazib yuboriladi, 640 da topiladi. Narxi: detektsiya
+vaqti ~1.4 baravar (RTX 5090). Cola bankalari javonida (GT 73) WBF 2 ta qutini yo'qotadi
+(73 → 71) — zich mayda mahsulotda dag'al masshtab qutilarni siljitadi; agent rasmlaridagi
+yutuq undan ancha katta. YOLOv8-L SKU-110K'da yaxshiroq (9a), lekin agent rasmlarida ancha yomon.
+
+### 11b. Qatorlar va bo'sh joy mantig'i
+49 ta real rasm (8 namuna + foydalanuvchi javoni + 40 agent rasmi), eski → yangi:
+
+| | Mahsulot | Fon (kesilgan) | OOS zonalari | Tekshirish kerak | Bo'linma |
+|---|---|---|---|---|---|
+| Jami | 1627 → 1738 | 9 → 47 | 17 → 11 | 85 → 102 | **255 → 30** |
+| Foydalanuvchi javoni | 75 → 65 | 0 → 10 | 0 → 1 | 2 → 2 | 16 → 0 |
+| shelf_partial_empty (haqiqiy bo'sh javonlar) | 28 → 36 | 0 | 10 → 8 | 0 → 2 | 5 → 3 |
+
+O'zgarishlar: bo'linma — barcha qatorlarda joyi VA kengligi bir xil bo'shliq (x bo'yicha IoU);
+kadr cheti kesgan qator — fon; javon chetida turmagan "qator"dan bo'sh joy hisoblanmaydi;
+qo'shni qatorning baland mahsuloti joyni band qiladi; kadr cheti kesgan mahsulot yonidagi
+oraliq (ramka) bo'sh joy emas; bo'sh javon zonasi o'sha joydagi mahsulot bo'yiga mos bo'lishi
+kerak. Regressiya: `benchmark_oos --n 40` 31/40, recall 0.806, noto'g'ri 0 (o'zgarmadi);
+`benchmark_synthetic --n 100` aniqlik 0.5531 (o'zgarmadi), OOS recall 0.875 → 0.882, precision 1.0.
+
+### 11c. O'lcham bo'yicha veto va "boshqa mahsulotlar" bazasi
+Bir rasmda bir SKU facing'lari bir bo'yda bo'ladi: ko'pchilikdan 0.6 baravardan kichik/katta
+VA chegaraga yaqin mos kelgan quti noma'lumga qaytariladi. Cola GT (bitta masshtab): 72/73 →
+73/73 (Oransoda → Lemon Soda xatosi yo'qoldi).
+
+`models/negatives/aptash_v1.npz` prodda yo'q edi (git'ga kiritilmagan). Real javon, bitta SKU'li
+katalog, DENA qatorida to'g'ri / boshqa joyda noto'g'ri tanilgan:
+
+| Katalog | Bazasiz (eski prod) | Baza bilan |
+|---|---|---|
+| 2 ta old tomon fotosi | 10/11, noto'g'ri 2 | 10/11, noto'g'ri **0** |
+| 5 foto (old + yon) | 10/11, noto'g'ri 6 | 10/11, noto'g'ri 2 |
+
+### 11d. Embedding modeli nomzodlari (almashtirilmadi)
+`DINOv2-base ×0.4 + X ×0.6`, rang 0.25; closed / AUROC / open-set, 20 bo'linish:
+
+| X | RP2K k=1 | RP2K k=5 | Grocery k=0 | Grocery k=5 | O'rtacha open (6 sozlama) |
+|---|---|---|---|---|---|
+| SigLIP2-base-224 (joriy) | 0.632 / 0.725 / 0.556 | 0.837 / 0.812 / 0.721 | 0.849 / 0.681 / 0.652 | 0.805 / 0.729 / 0.641 | 0.643 |
+| SigLIP2-base-384 | 0.619 / 0.724 / 0.549 | 0.836 / 0.815 / 0.722 | 0.904 / 0.717 / 0.694 | 0.849 / 0.758 / 0.676 | 0.660 |
+| SigLIP2-base-512 | 0.621 / 0.727 / 0.549 | 0.836 / 0.818 / 0.723 | 0.894 / 0.718 / 0.704 | 0.856 / 0.767 / 0.682 | 0.665 |
+| SigLIP2-large-256 | 0.651 / 0.732 / 0.567 | 0.843 / 0.813 / 0.727 | 0.858 / 0.701 / 0.666 | 0.832 / 0.741 / 0.653 | 0.656 |
+| SigLIP2-so400m-224 | 0.666 / 0.736 / 0.583 | 0.853 / 0.816 / 0.731 | 0.876 / 0.727 / 0.693 | 0.865 / 0.779 / 0.701 | **0.679** |
+| DINOv2-reg-base (DINOv2 o'rnida) | 0.630 / 0.725 / 0.550 | 0.835 / 0.809 / 0.722 | 0.800 / 0.656 / 0.608 | 0.792 / 0.720 / 0.621 | 0.629 |
+| CLIP ViT-L/14 | 0.634 / 0.712 / 0.555 | 0.825 / 0.788 / 0.699 | 0.779 / 0.670 / 0.608 | 0.778 / 0.738 / 0.628 | 0.626 |
+
+DINOv3 — HuggingFace'da yopiq (litsenziya tasdig'i kerak), sinalmadi. so400m real datasetlarda
++3.6 punkt (sintetikada −1.9, 10c). Foydalanuvchining real javonida esa farq yo'q: DENA va
+qolgan qutilarni ajratish AUROC 0.995 (joriy) → 1.000. Almashtirish narxi: 3–5 baravar sekin
+embedding, chegaralarni qayta kalibrlash, negativ bazani qayta qurish, barcha kataloglarni qayta
+indekslash. Xulosa: hozir almashtirilmaydi; server GPU kuchaytirilganda birinchi nomzod — so400m,
+packshot-katalog uchun — SigLIP2-base-384/512.
