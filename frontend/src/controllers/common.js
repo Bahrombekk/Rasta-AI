@@ -48,10 +48,41 @@
     document.body.append(t); setTimeout(() => t.remove(), 2400);
   };
 
+  // Skaner ko'rinishi uchun javon (mahsulotlar + aniqlash qutilari) yasaydi.
+  const RL_PALETTE = ["#d9a84e", "#64b49d", "#c67088", "#8aa6d6", "#9bc46a", "#d98b5a", "#7fc4c0"];
+  const rlShelf = () => {
+    let rows = "";
+    const R = 3;
+    for (let r = 0; r < R; r++) {
+      let cells = "";
+      const n = 4 + Math.floor(Math.random() * 3);
+      for (let c = 0; c < n; c++) {
+        const bottle = Math.random() < 0.45;
+        const col = RL_PALETTE[(r * 3 + c) % RL_PALETTE.length];
+        const delay = ((r / R) * 1.7 + c * 0.05).toFixed(2);
+        const w = (bottle ? 11 : 15) + Math.floor(Math.random() * 5);
+        const h = (bottle ? 66 : 56) + Math.floor(Math.random() * 28);
+        cells += `<span class="rl-pr${bottle ? " bottle" : ""}" style="width:${w}px;height:${h}%;`
+          + `background:linear-gradient(160deg,${col},color-mix(in srgb,${col} 70%,#000))">`
+          + `<span class="rl-det" style="animation-delay:${delay}s"></span>`
+          + `<span class="rl-tick" style="animation-delay:${delay}s">✓</span></span>`;
+      }
+      rows += `<span class="rl-row">${cells}</span>`;
+    }
+    return `<span class="rl-grid"></span><span class="rl-shelf">${rows}</span><span class="rl-beam"></span>`;
+  };
+  const rlPack = () =>
+    '<span class="rl-ring"></span><span class="rl-ring"></span><span class="rl-ring"></span>'
+    + '<span class="rl-pack"><span class="rl-shine"></span>'
+    + '<span class="rl-node" style="top:22%;left:8%;animation-delay:.2s"></span>'
+    + '<span class="rl-node" style="top:50%;left:84%;animation-delay:.6s"></span>'
+    + '<span class="rl-node" style="top:72%;left:14%;animation-delay:1s"></span>'
+    + '<span class="rl-node" style="top:30%;left:78%;animation-delay:1.4s"></span></span>';
+
   // Bosqichли loading overlay. target — ustiga qo'yiladigan element (position:relative
   // bo'ladi). stages — matnlar ro'yxati; ular navbatma-navbat ko'rsatiladi (oxirgida
-  // ushlanib turadi). opts.scan — javon skanerlash ko'rinishi (tahlil uchun).
-  // Qaytaradi: { stop() }.
+  // ushlanib turadi). opts.scan — javon skanerlash ko'rinishi (tahlil uchun), aks holda
+  // katalog (mahsulot) ko'rinishi. Qaytaradi: { stop() }.
   window.rastaLoader = (target, stages, opts = {}) => {
     if (!target) return { stop() {} };
     const restore = getComputedStyle(target).position === "static";
@@ -60,7 +91,7 @@
     ov.className = "rasta-loader" + (opts.scan ? " scan" : "");
     ov.setAttribute("role", "status");
     ov.innerHTML =
-      `<div class="rl-visual">${opts.scan ? '<span class="rl-beam"></span>' : '<span class="rl-ring"></span>'}</div>`
+      `<div class="rl-visual">${opts.scan ? rlShelf() : rlPack()}</div>`
       + '<div class="rl-status"><span class="rl-dot"></span><span class="rl-text"></span></div>'
       + '<div class="rl-bar"><span class="rl-fill"></span></div>'
       + `<div class="rl-steps">${stages.map(s => `<span class="rl-step">${window.esc(s)}</span>`).join("")}</div>`;
@@ -75,7 +106,7 @@
       i = Math.min(i + 1, stages.length - 1);
     };
     tick();
-    const timer = setInterval(tick, opts.interval || 700);
+    const timer = setInterval(tick, opts.interval || 800);
     return {
       stop() {
         clearInterval(timer);
