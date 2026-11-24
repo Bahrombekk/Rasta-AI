@@ -11,7 +11,7 @@ from .session_api import AdminUpdate, Login
 from .workspaces import TASHKENT
 
 ReportStatus = Literal["draft", "submitted", "approved", "returned"]
-Period = Literal["7", "30", "90"]
+Period = Literal["7", "30", "90", "365"]
 CSV_LIMIT = 10_000
 
 

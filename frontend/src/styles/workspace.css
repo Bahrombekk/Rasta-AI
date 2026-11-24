@@ -119,6 +119,13 @@
 .trend-col i { position: absolute; inset: auto 12% 0; height: var(--value); border-radius: 3px 3px 0 0;
   background: linear-gradient(to top, var(--accent), #45a678); }
 .trend-axis { grid-column: 2; display: flex; justify-content: space-between; padding: 6px; color: var(--muted); font-size: 11px; }
+.trend-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; }
+.segmented { display: inline-flex; padding: 3px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
+.segmented button { min-width: 54px; min-height: 30px; padding: 4px 12px; border: 0; border-radius: 7px; background: none;
+  color: var(--muted); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.segmented button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.trend-summary { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 10px 0 0; color: var(--muted); font-size: 13px; }
+.trend-summary strong { color: var(--ink); }
 .status-track { display: flex; gap: 3px; height: 10px; background: var(--surface-2); overflow: hidden;
   border: 1px solid var(--border); border-radius: 6px; margin: 14px 0 7px; }
 .status-track > i { background: var(--accent); min-width: 4px; }

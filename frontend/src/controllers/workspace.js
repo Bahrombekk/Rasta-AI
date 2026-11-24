@@ -86,7 +86,7 @@ export default function mountPage() {
   const metric = (label, value, glyph, tone = "green", detail = "") => `<article class="card work-metric">
     <span class="metric-icon ${tone}">${icon(glyph)}</span><span class="metric-label">${label}</span>
     <strong>${value}</strong>${detail ? `<small class="metric-detail">${detail}</small>` : ""}</article>`;
-  const periodLabel = '<label class="period-control"><span>Davr</span><select class="input" id="days"><option value="7">7 kun</option><option value="30">30 kun</option><option value="90">90 kun</option></select></label>';
+  const periodLabel = '<label class="period-control"><span>Davr</span><select class="input" id="days"><option value="7">7 kun</option><option value="30">30 kun</option><option value="90">90 kun</option><option value="365">1 yil</option></select></label>';
   function bindPeriod(days, refresh) {
     $("days").value = days;
     $("days").onchange = event => {
@@ -97,20 +97,63 @@ export default function mountPage() {
       render(() => refresh(next));
     };
   }
-  function trendPanel(trend, total, action = "") {
-    const max = Math.ceil(Math.max(1, ...trend.map(item => item.count)) / 4) * 4;
-    const chart = trend.map(item => {
-      const date = item.day.split("-").slice(1).reverse().join(".");
-      return `<div class="trend-col" title="${date} · ${count(item.count)} ta"><i style="--value:${100 * item.count / max}%"></i></div>`;
-    }).join("");
-    return `<section class="card dashboard-panel"><div class="panel-heading"><div><h2>Audit faolligi</h2>
-      <p>Kunlik hisobotlar · Toshkent vaqti</p></div>${action}</div>
-      ${total ? `<div class="chart-frame">
-        <div class="chart-ticks" aria-hidden="true">${[max, max*0.75, max*0.5, max*0.25, 0].map(tick => `<span>${count(tick)}</span>`).join("")}</div>
-        <div class="trend-chart" role="img" aria-label="Davr ichida ${count(total)} ta audit yuborilgan">${chart}</div>
-        <div class="trend-axis"><span>${trend[0].day}</span><span>${trend.at(-1).day}</span></div></div>`
-        : empty("Faollik hali yo‘q", "Yuborilgan auditlar shu yerda paydo bo‘ladi.", "chart")}</section>`;
+  // Audit faolligi: kunlik ma'lumot kun / hafta / oy bo'yicha guruhlab ko'rsatiladi.
+  const trendUnits = { day: ["Kun", "kuniga"], week: ["Hafta", "haftasiga"], month: ["Oy", "oyiga"] };
+  let trendState = { trend: [], total: 0, unit: null };
+  const shortDate = day => day.split("-").slice(1).reverse().join(".");
+  function trendBuckets(trend, unit) {
+    if (unit === "day") return trend.map(item => ({ label: shortDate(item.day), count: item.count }));
+    const buckets = [];
+    for (const item of trend) {
+      const date = new Date(item.day + "T00:00:00Z");
+      let key = item.day.slice(0, 7);                                   // oy: YYYY-MM
+      if (unit === "week") {                                            // hafta: dushanbadan
+        date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 6) % 7);
+        key = date.toISOString().slice(0, 10);
+      }
+      let bucket = buckets.at(-1);
+      if (!bucket || bucket.key !== key) buckets.push(bucket = { key, first: item.day, last: item.day, count: 0 });
+      bucket.last = item.day;
+      bucket.count += item.count;
+    }
+    return buckets.map(bucket => ({
+      count: bucket.count,
+      label: unit === "month" ? bucket.key.split("-").reverse().join(".") : `${shortDate(bucket.first)}–${shortDate(bucket.last)}`,
+    }));
   }
+  function trendBody() {
+    const { trend, total, unit } = trendState;
+    if (!total) return empty("Faollik hali yo‘q", "Yuborilgan auditlar shu yerda paydo bo‘ladi.", "chart");
+    const buckets = trendBuckets(trend, unit);
+    const max = Math.ceil(Math.max(1, ...buckets.map(item => item.count)) / 4) * 4;
+    const peak = buckets.reduce((best, item) => item.count > best.count ? item : best, buckets[0]);
+    const average = total / buckets.length;
+    return `<div class="chart-frame">
+        <div class="chart-ticks" aria-hidden="true">${[max, max*0.75, max*0.5, max*0.25, 0].map(tick => `<span>${count(tick)}</span>`).join("")}</div>
+        <div class="trend-chart" role="img" aria-label="Davr ichida ${count(total)} ta audit yuborilgan">${buckets.map(item =>
+          `<div class="trend-col" title="${item.label} · ${count(item.count)} ta"><i style="--value:${100 * item.count / max}%"></i></div>`).join("")}</div>
+        <div class="trend-axis"><span>${buckets[0].label}</span><span>${buckets.at(-1).label}</span></div></div>
+      <p class="trend-summary"><span>O‘rtacha <strong>${average < 10 ? average.toFixed(1) : count(Math.round(average))}</strong> ta ${trendUnits[unit][1]}</span>
+        <span>Eng ko‘p: <strong>${count(peak.count)}</strong> ta (${peak.label})</span><span>Jami: <strong>${count(total)}</strong></span></p>`;
+  }
+  function trendPanel(trend, total, action = "") {
+    // davrga mos standart: qisqa davr — kunlik, 90 kun — haftalik, 1 yil — oylik
+    const fallback = trend.length > 120 ? "month" : trend.length > 45 ? "week" : "day";
+    trendState = { trend, total, unit: trendState.unit && trendState.length === trend.length ? trendState.unit : fallback, length: trend.length };
+    return `<section class="card dashboard-panel trend-panel"><div class="panel-heading"><div><h2>Audit faolligi</h2>
+      <p>Yuborilgan hisobotlar · Toshkent vaqti</p></div>
+      <div class="trend-tools"><div class="segmented" role="group" aria-label="Guruhlash">${Object.entries(trendUnits).map(([unit, [label]]) =>
+        `<button type="button" data-trend-unit="${unit}" aria-pressed="${unit === trendState.unit}">${label}</button>`).join("")}</div>${action}</div></div>
+      <div class="trend-body">${trendBody()}</div></section>`;
+  }
+  body.addEventListener("click", event => {
+    const button = event.target.closest("[data-trend-unit]");
+    if (!button) return;
+    trendState.unit = button.dataset.trendUnit;
+    const panel = button.closest(".trend-panel");
+    panel.querySelectorAll("[data-trend-unit]").forEach(item => item.setAttribute("aria-pressed", String(item === button)));
+    panel.querySelector(".trend-body").innerHTML = trendBody();
+  });
   const table = (labels, rows) => `<div class="work-table-wrap"><table class="work-table">
     <thead><tr>${labels.map(label => `<th scope="col">${label}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>`;
   const reportRows = (rows, filters) => {
@@ -171,7 +214,7 @@ export default function mountPage() {
 
   function requestedDays() {
     const days = new URLSearchParams(location.search).get("days");
-    return ["7", "30", "90"].includes(days) ? days : "30";
+    return ["7", "30", "90", "365"].includes(days) ? days : "30";
   }
   function reviewTime(seconds) {
     if (seconds == null) return "—";
