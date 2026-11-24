@@ -116,3 +116,18 @@ def test_pick_product_box_ignores_background_touching_the_frame():
     x1, y1, x2, y2 = pick_product_box([table, product, poster], 600, 800)
     assert x1 <= 210 and y1 <= 120 and x2 >= 370 and y2 >= 660 and x2 - x1 < 200
     assert pick_product_box([table], 600, 800) is None
+
+
+def test_drop_group_boxes_keeps_whole_product_over_its_fragments():
+    from rasta.detector import drop_group_boxes
+
+    # baland karton: kichik masshtab to'liq topgan (ishonchli), katta masshtab ikki bo'lakka bo'lgan
+    whole = [100, 100, 200, 450, .45]
+    fragments = [[102, 104, 198, 290, .15], [103, 270, 199, 446, .18]]
+    kept = drop_group_boxes(np.array([whole] + fragments, dtype=np.float32))
+    assert any(np.allclose(row, whole) for row in kept)
+    # ikki banka ustidan chizilgan guruh qutisi: bankalar ishonchliroq — guruh olib tashlanadi
+    group = [100, 100, 200, 450, .25]
+    cans = [[102, 104, 198, 272, .8], [103, 278, 199, 446, .7]]
+    kept = drop_group_boxes(np.array([group] + cans, dtype=np.float32))
+    assert len(kept) == 2 and not any(np.allclose(row, group) for row in kept)

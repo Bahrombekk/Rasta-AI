@@ -329,12 +329,21 @@ katalogi bilan undan ikki baravar kichik qutilarni "tanidi".
 | **640 + 1280, WBF** | **0.900 / 0.959 / 0.928** | **0.683 / 0.877 / 0.768** | **0.744 / 0.879 / 0.806** | 0.917 / 0.816 / 0.863 |
 | 640 + 1280, "to'ldirish" (asosiy o'tish qutilariga tegmasdan) | 0.883 / 0.936 / 0.909 | 0.672 / 0.862 / 0.755 | 0.732 / 0.863 / 0.792 | 0.912 / 0.821 / 0.864 |
 | Bitta masshtab 960 | 0.730 / 0.886 / 0.800 | 0.665 / 0.909 / 0.768 | 0.726 / 0.916 / 0.810 | 0.901 / 0.864 / 0.882 |
-| YOLOv8-L SKU-110K (sbfisher), 640 + 1280 | 0.822 / 0.656 / 0.730 | — | — | — |
+| YOLOv8-L SKU-110K (sbfisher), 640 + 1280 | 0.822 / 0.656 / 0.730 | 0.691 / 0.844 / 0.760 | — | 0.935 / 0.815 / 0.871 |
 
 Yaqindan olingan yirik mahsulot 1280 da o'tkazib yuboriladi, 640 da topiladi. Narxi: detektsiya
 vaqti ~1.4 baravar (RTX 5090). Cola bankalari javonida (GT 73) WBF 2 ta qutini yo'qotadi
 (73 → 71) — zich mayda mahsulotda dag'al masshtab qutilarni siljitadi; agent rasmlaridagi
 yutuq undan ancha katta. YOLOv8-L SKU-110K'da yaxshiroq (9a), lekin agent rasmlarida ancha yomon.
+
+Zona rejimi (4 nuqtali zona kattalashtirilib tahlil qilinadi): 640-o'tish kartonlarni to'liq,
+1280-o'tish esa bo'laklab topadi; `drop_group_boxes` to'liq qutini "ikki mahsulotli guruh" deb
+olib tashlab, bo'laklarni qoldirardi (Bliss qatorida 11 tadan 8 tasi to'liq). Endi quti faqat
+qismlari yetarlicha ishonchli bo'lsa (o'rtacha bal >= 0.5 x quti bali) guruh hisoblanadi:
+zonada 11/11 to'liq; gt_det F1 0.928 -> 0.926, f1 0.768 -> 0.770, f2 0.806 -> 0.807.
+Shu zonada: bo'sh o'rin 17 (eski prod) -> 0, bo'linma 0, tekshirish kerak 1.
+Boshqa qat'iy masshtab to'plamlari (512+1280, 512+896+1280, 512+960, 384+640+1280) gt_det'da
+640+1280 dan past chiqdi (F1 0.83-0.905).
 
 ### 11b. Qatorlar va bo'sh joy mantig'i
 49 ta real rasm (8 namuna + foydalanuvchi javoni + 40 agent rasmi), eski → yangi:

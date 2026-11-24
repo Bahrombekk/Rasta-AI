@@ -317,7 +317,7 @@ def merge_split_boxes(boxes: list[Box], iomin_thr: float = 0.5, x_iou: float = 0
 
 
 def drop_group_boxes(arr: np.ndarray, contain_thr: float = 0.8, cover_thr: float = 0.7,
-                     grid: int = 32) -> np.ndarray:
+                     grid: int = 32, part_score: float = 0.5) -> np.ndarray:
     """Bir nechta mahsulotni o'rab olgan "guruh" qutilarini olib tashlaydi.
 
     Past masshtabda detektor ustma-ust/yonma-yon turgan 2 ta bankani bitta quti
@@ -325,6 +325,15 @@ def drop_group_boxes(arr: np.ndarray, contain_thr: float = 0.8, cover_thr: float
     Qoida: quti ichida >= 2 ta kichik quti bo'lsa va ular uning >= cover_thr
     qismini qoplasa — bu guruh. (Shisha ichidagi yorliq + qopqoq bo'laklari odatda
     40% dan kam qoplaydi, shuning uchun ular suppress_nested'ga qoladi.)
+
+    Teskari holat ham bor: yirik mahsulotni (baland karton) katta masshtab "tepa" va "past"
+    bo'laklarga bo'ladi, kichik masshtab esa to'liq topadi — bo'laklar to'liq qutini 70% dan
+    ko'p qoplaydi va u "guruh" bo'lib ko'rinadi (zona rejimida 11 kartondan 3 tasi faqat
+    bo'lak holida qolardi). Farqi ishonchda: haqiqiy guruhda qismlar (alohida bankalar)
+    ishonchli, bo'lingan mahsulotda esa butuni qismlaridan ancha ishonchli. Quti faqat
+    qismlarining o'rtacha bali uning balining part_score qismidan kam bo'lmasa olib
+    tashlanadi; aks holda u qoladi va bo'laklar suppress_nested'da yo'qoladi.
+    part_score 0.5: gt_det F1 0.928 -> 0.926, f1 0.768 -> 0.770, f2 0.806 -> 0.807.
     """
     if len(arr) < 3:
         return arr
@@ -348,7 +357,7 @@ def drop_group_boxes(arr: np.ndarray, contain_thr: float = 0.8, cover_thr: float
             a = int(np.clip((ix1[j] - x1) * sx, 0, grid)); b = int(np.ceil(np.clip((ix2[j] - x1) * sx, 0, grid)))
             c = int(np.clip((iy1[j] - y1) * sy, 0, grid)); d = int(np.ceil(np.clip((iy2[j] - y1) * sy, 0, grid)))
             mask[c:d, a:b] = True
-        if mask.mean() >= cover_thr:
+        if mask.mean() >= cover_thr and arr[inside, 4].mean() >= part_score * arr[i, 4]:
             keep[i] = False
     return arr[keep]
 
