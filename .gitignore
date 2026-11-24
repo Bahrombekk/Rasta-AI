@@ -16,7 +16,9 @@ torchinductor_*/
 *.pt
 *.onnx
 *.engine
-models/negatives/
+models/negatives/*
+# "Boshqa mahsulotlar" bazasi prodda kerak (Git LFS): usiz kichik katalogda soxta tanish ko'payadi
+!models/negatives/aptash_v1.npz
 models/candidates/
 # Prod uchun ishlatiladigan og'irliklar Git LFS orqali kuzatiladi:
 !models/weights/*.pt

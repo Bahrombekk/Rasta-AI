@@ -85,7 +85,7 @@ Katalogda mahsulotlar nom, SKU, brend va shtrix-kod bo‘yicha qidiriladi. Natij
 
 ## Docker’da ishga tushirish
 
-1. `config.yaml` dagi detektor og‘irliklarini `models/weights/` ga joylashtiring. `models/negatives/aptash_v1.npz` ixtiyoriy.
+1. `config.yaml` dagi detektor og‘irliklarini `models/weights/` ga joylashtiring. `models/negatives/aptash_v1.npz` ("boshqa mahsulotlar" bazasi, Git LFS) — kichik katalogda begona mahsulotlarning katalogdagi SKU deb tanilishini to‘xtatadi; yuklanganini `/api/health` dagi `negatives` ko‘rsatadi.
 2. `.env.example` ni `.env` ga nusxalang. `python -c "import secrets; print(secrets.token_urlsafe(48))"` bilan token yarating va `RASTA_AI_TOKEN` sifatida kiriting.
 3. NVIDIA GPU mavjud bo‘lsa Docker GPU integratsiyasini yoqing. CPU’da ishlatish uchun Compose faylidagi `gpus: all` qatorini olib tashlang.
 

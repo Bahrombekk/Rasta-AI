@@ -741,7 +741,9 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
         database_ready = accounts is None or accounts.database.ready()
         ready = database_ready and (State.inference is None or State.inference.ready())
         status = {"ok": ready, "loaded": State.pipe is not None and ready,
-                  "catalog_stale": bool(stale), "database_ready": database_ready}
+                  "catalog_stale": bool(stale), "database_ready": database_ready,
+                  # "boshqa mahsulotlar" bazasi yuklanganmi (kichik katalogda soxta tanishni to'xtatadi)
+                  "negatives": State.pipe is not None and getattr(State.pipe.catalog, "negatives", None) is not None}
         return JSONResponse(status, status_code=200 if ready else 503)
 
     return app
