@@ -63,6 +63,7 @@ class Detection:
     row: int = -1                   # javon qatori indeksi (0 = tepa)
     cluster: int = -1               # noma'lumlar klasteri (-1 = yo'q / shovqin)
     context_fixed: bool = False     # qo'shnilar konteksti bilan tuzatilganmi
+    vec: Any = field(default=None, repr=False, compare=False)  # crop embedding (transient)
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {

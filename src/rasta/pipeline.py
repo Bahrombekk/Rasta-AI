@@ -146,6 +146,8 @@ class RastaPipeline:
         if detections:
             crops = crop_boxes(image, [d.box for d in detections])
             vectors = self.embedder.embed(crops)
+            for d, v in zip(detections, vectors):
+                d.vec = v
             colors = color_descriptors(crops)
             aspects = [aspect_ratio(d.box.height, d.box.width) for d in detections]
             if self.catalog.count() > 0:
@@ -163,6 +165,14 @@ class RastaPipeline:
                 color_min=self.params.color_min,
                 params=self.params,
             )
+            if cfg.get("context.propagate_blocks", False):
+                from .context import propagate_identical
+                propagate_identical(
+                    detections,
+                    sim=cfg.get("context.block_sim", 0.90),
+                    max_gap=cfg.get("context.block_max_gap", 0.6),
+                    params=self.params,
+                )
 
         # 6. Noma'lumlarni klasterlash
         clusters: dict = {}
