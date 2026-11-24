@@ -9,6 +9,22 @@ services:
         condition: service_healthy
     networks: [web]
 
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      RASTA_DOMAIN: "${RASTA_DOMAIN:?Set RASTA_DOMAIN in .env}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - frontend
+    networks: [web]
+
   backend:
     build:
       context: .
@@ -65,3 +81,5 @@ volumes:
   rasta-catalog:
   rasta-images:
   rasta-accounts:
+  caddy-data:
+  caddy-config:
