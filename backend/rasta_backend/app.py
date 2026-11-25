@@ -14,8 +14,10 @@ import json
 import os
 import re
 import shutil
+import tempfile
 import threading
 import time
+import zipfile
 from pathlib import Path
 from typing import Optional
 
@@ -24,6 +26,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
+from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
 from rasta.config import ROOT, Config, resolve_path
@@ -37,6 +40,13 @@ STATIC = ROOT / "frontend" / "dist"
 MAX_SIDE = 2000                    # katta telefon rasmlari shu o'lchamgacha kichraytiriladi
 MAX_BYTES = 20 * 1024 * 1024
 MAX_PIXELS = 50_000_000            # "dekompressiya bombasi": kichik fayl, ulkan rasm
+# Katalog to'plami (.zip): bir korxonada tayyorlangan katalogni boshqasiga ko'chirish uchun
+BUNDLE_MAX_BYTES = 300 * 1024 * 1024
+BUNDLE_MAX_UNPACKED = 1024 * 1024 * 1024
+BUNDLE_MAX_PRODUCTS = 3000
+BUNDLE_MAX_IMAGES = 40             # bitta mahsulotga
+BUNDLE_IMAGE = re.compile(r"c?[0-9]{3}\.jpg")
+BUNDLE_SKU = re.compile(r"[0-9a-zA-Zа-яА-ЯёЁ_]{1,64}")
 # Bir-biridan aniq farqlanadigan ranglar: natijadagi mahsulotlarga ulush tartibida beriladi,
 # shunda jadvaldagi rang belgisi rasmdagi ramka bilan bir qarashda mos keladi.
 PALETTE = ["#2563eb", "#e11d48", "#16a34a", "#f59e0b", "#7c3aed", "#0891b2", "#ea580c",
@@ -478,8 +488,10 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
         user = request.state.user or {}
         org_id = user.get("org_id")
         if workspaces is not None:
-            catalog_read = path == "/api/products" or path.startswith("/api/products/") or path.startswith("/media/")
-            catalog_action = (catalog_read and not path.startswith("/media/")) or path in {"/api/teach", "/api/reindex"}
+            catalog_read = (path == "/api/products" or path.startswith(("/api/products/", "/media/"))
+                            or path == "/api/catalog/export")
+            catalog_action = ((catalog_read and not path.startswith("/media/"))
+                              or path in {"/api/teach", "/api/reindex", "/api/catalog/import"})
             analysis_action = path == "/api/analyze" or path.startswith("/media/")
             selected = request.query_params.get("organization")
             platform_read = catalog_read and request.method in {"GET", "HEAD"} and user.get("role") == "super_admin"
@@ -778,6 +790,128 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
             if not skipped:
                 pipe.catalog.mark_current()    # hamma SKU joriy embedder bilan qayta qurildi
         return {"reindexed": done, "skipped": skipped}
+
+    @app.get("/api/catalog/export")
+    def export_catalog():
+        """Katalogni bitta .zip to'plam qilib berish: catalog.json (nom, brend, kategoriya,
+        shtrix-kod) + har mahsulotning namuna rasmlari va qutilari. Boshqa korxonada
+        /api/catalog/import orqali ochiladi (vektorlar o'sha yerda qaytadan hisoblanadi)."""
+        pipe = get_pipe()
+        tmp = tempfile.NamedTemporaryFile(prefix="rasta-catalog-", suffix=".zip", delete=False)
+        tmp.close()
+        try:
+            with State.lock, zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_STORED) as z:
+                products = []
+                for sku, v in sorted(pipe.catalog.sku_info().items()):
+                    files = image_files(sku)
+                    for f in files:
+                        z.write(f, f"{sku}/{f.name}")
+                        if box_file(f).is_file():
+                            z.write(box_file(f), f"{sku}/{box_file(f).name}")
+                    products.append({"sku_id": sku, "name": v["name"], "brand": v.get("brand"),
+                                     **catalog_metadata(v), "images": [f.name for f in files]})
+                z.writestr("catalog.json", json.dumps(
+                    {"format": "rasta-catalog", "version": 1, "products": products},
+                    ensure_ascii=False, indent=1))
+        except Exception:
+            os.unlink(tmp.name)
+            raise
+        return FileResponse(tmp.name, media_type="application/zip", filename="rasta-katalog.zip",
+                            background=BackgroundTask(os.unlink, tmp.name))
+
+    @app.post("/api/catalog/import")
+    def import_catalog(file: UploadFile = File(...), x_admin_token: Optional[str] = Header(None)):
+        """Tayyor katalog to'plamini (.zip) shu korxona katalogiga qo'shish. Katalogda bor
+        mahsulot (SKU bo'yicha) o'zgartirilmaydi — o'tkazib yuboriladi. Har rasm qayta
+        o'qib tekshiriladi va qayta saqlanadi; vektorlar joriy model bilan hisoblanadi."""
+        check_admin(x_admin_token)
+        tmp = tempfile.TemporaryFile()        # diskda: katta to'plam xotirani to'ldirmaydi
+        size = 0
+        while chunk := file.file.read(1024 * 1024):
+            size += len(chunk)
+            if size > BUNDLE_MAX_BYTES:
+                raise HTTPException(413, "Katalog fayli juda katta (300 MB dan ko'p)")
+            tmp.write(chunk)
+        try:
+            z = zipfile.ZipFile(tmp)
+            infos = {i.filename: i for i in z.infolist()}
+            if sum(i.file_size for i in infos.values()) > BUNDLE_MAX_UNPACKED:
+                raise HTTPException(413, "Katalog fayli juda katta")
+            if "catalog.json" not in infos or infos["catalog.json"].file_size > 8 * 1024 * 1024:
+                raise ValueError
+            meta = json.loads(z.read("catalog.json").decode("utf-8"))
+            items = meta["products"]
+            if meta.get("format") != "rasta-catalog" or not isinstance(items, list):
+                raise ValueError
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(400, "Bu Rasta katalog fayli emas (.zip, ichida catalog.json bo'lishi kerak)")
+        if len(items) > BUNDLE_MAX_PRODUCTS:
+            raise HTTPException(413, "Katalogda mahsulotlar juda ko'p")
+
+        def text(value, limit):
+            return value.strip()[:limit] if isinstance(value, str) else ""
+
+        pipe = get_pipe()
+        added, skipped, failed = [], [], []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            src = item.get("sku_id")
+            name = text(item.get("name"), 200)
+            names = item.get("images")
+            if (not isinstance(src, str) or not BUNDLE_SKU.fullmatch(src) or not name
+                    or not isinstance(names, list)):
+                failed.append({"sku_id": str(src)[:64], "name": name, "reason": "Ma'lumot noto'g'ri"})
+                continue
+            sku = slug(src)
+            names = [n for n in names if isinstance(n, str) and BUNDLE_IMAGE.fullmatch(n)
+                     and f"{src}/{n}" in infos][:BUNDLE_MAX_IMAGES]
+            brand = text(item.get("brand"), 120) or None
+            category = text(item.get("category"), 80) or None
+            barcode = text(item.get("barcode"), 32) or None
+            with State.lock:
+                products = pipe.catalog.sku_info()
+                folder = images_root() / sku
+                if sku in products or image_files(sku):
+                    skipped.append({"sku_id": sku, "name": name})
+                    continue
+                if barcode and (not re.fullmatch(r"[0-9]{4,32}", barcode)
+                                or any(v.get("barcode") == barcode for v in products.values())):
+                    barcode = None                     # band yoki noto'g'ri shtrix-kod ko'chirilmaydi
+                try:
+                    folder.mkdir(parents=True, exist_ok=True)
+                    for n in names:
+                        if infos[f"{src}/{n}"].file_size > MAX_BYTES:
+                            continue
+                        img = read_image(z.read(f"{src}/{n}"))
+                        crop = n.startswith("c")
+                        im = Image.fromarray(img)
+                        if not crop:
+                            im.thumbnail((800, 800))
+                        im.save(folder / n, quality=92 if crop else 88)
+                        side = f"{src}/{n[:-4]}.box.json"
+                        if not crop and side in infos and infos[side].file_size < 4096:
+                            try:
+                                saved = json.loads(z.read(side).decode("utf-8"))
+                                write_box(folder / n, valid_box(saved.get("box")), bool(saved.get("auto", True)))
+                            except (ValueError, TypeError, AttributeError):
+                                pass                   # quti buzilgan — qayta avtomatik aniqlanadi
+                    if not image_files(sku):
+                        raise ValueError("Rasm yo'q")
+                    vectors = rebuild_sku(pipe, sku, name, brand, {"category": category, "barcode": barcode})
+                    count = len(image_files(sku))
+                except Exception as error:
+                    shutil.rmtree(folder, ignore_errors=True)
+                    pipe.catalog.delete_sku(sku)
+                    if isinstance(error, InferenceUnavailable):
+                        raise
+                    reason = error.detail if isinstance(error, HTTPException) else "Rasmlarni o'qib bo'lmadi"
+                    failed.append({"sku_id": sku, "name": name, "reason": str(reason)})
+                    continue
+            added.append({"sku_id": sku, "name": name, "images": count, "vectors": vectors})
+        return {"added": added, "skipped": skipped, "failed": failed}
 
     @app.post("/api/analyze")
     def analyze(request: Request, image: UploadFile = File(...), roi: str = Form(""),

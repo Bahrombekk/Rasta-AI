@@ -12,6 +12,9 @@ export default function Catalog() {
           <div className="page-actions">
             <button className="btn ghost" id="reindexAll" type="button" hidden><Icon name="refresh" />Qayta o‘rganish</button>
             <button className="btn ghost" id="export" disabled><Icon name="download" />CSV yuklash</button>
+            <button className="btn ghost" id="bundleExport" type="button" disabled title="Katalogni rasmlari bilan bitta faylga (.zip) saqlash — boshqa korxonaga ko‘chirish uchun"><Icon name="download" />Katalog fayli</button>
+            <button className="btn ghost" id="bundleImport" type="button" hidden title="Tayyor katalog faylini (.zip) shu katalogga qo‘shish"><Icon name="upload" />Katalog faylini yuklash</button>
+            <input type="file" id="bundleFile" accept=".zip,application/zip" hidden />
             <button className="btn primary" type="button" id="addBtn" hidden><Icon name="plus" />Mahsulot qo'shish</button>
           </div>
         </div>

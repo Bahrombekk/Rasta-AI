@@ -80,6 +80,7 @@ export default function mountPage() {
     $("filter-toggle").textContent = filterCount ? `Filtrlar (${filterCount})` : "Filtrlar";
     $("reset").hidden = !filters.some(id => $(id).value);
     $("export").disabled = !matches.length;
+    $("bundleExport").disabled = !all.length;
     $("pagination").hidden = pages === 1;
     $("page-number").textContent = `${page} / ${pages}`;
     $("previous").disabled = page === 1;
@@ -90,6 +91,7 @@ export default function mountPage() {
     const request = ++revision;
     $("catalog-content").hidden = true;
     $("export").disabled = true;
+    $("bundleExport").disabled = true;
     const status = $("status");
     status.hidden = false;
     status.textContent = "Katalog yuklanmoqda…";
@@ -408,6 +410,28 @@ export default function mountPage() {
     } finally { loader.stop(); lock(false); }
   };
 
+  // Katalog to'plami: rasmlari bilan .zip — bir korxonada tayyorlab, boshqasiga ko'chirish
+  $("bundleExport").onclick = () => { location.assign(scoped("/api/catalog/export")); };
+  $("bundleImport").onclick = () => { if (!busy) $("bundleFile").click(); };
+  $("bundleFile").onchange = async event => {
+    const file = event.target.files[0];
+    event.target.value = "";
+    if (!file || busy) return;
+    if (!confirm(`"${file.name}" faylidagi mahsulotlar katalogga qo‘shilsinmi? Katalogda bor mahsulotlar o‘zgarmaydi.`)) return;
+    busy = true; $("bundleImport").disabled = true;
+    const loader = window.rastaLoader($("catalog-content"), ["Fayl o‘qilmoqda", "Rasmlar tekshirilmoqda", "Belgilar ajratilmoqda", "Katalog yangilanmoqda"], { interval: 2500 });
+    try {
+      const body = new FormData(); body.append("file", file);
+      const result = await api("/api/catalog/import", { method: "POST", body });
+      const parts = [`${result.added.length} ta mahsulot qo‘shildi`];
+      if (result.skipped.length) parts.push(`${result.skipped.length} tasi katalogda bor edi`);
+      if (result.failed.length) parts.push(`${result.failed.length} tasi qo‘shilmadi`);
+      toast(parts.join(", "));
+      if (result.failed.length) alert("Qo‘shilmagan mahsulotlar:\n" + result.failed.map(p => `${p.name || p.sku_id}: ${p.reason}`).join("\n"));
+    } catch (error) { toast(error.message); }
+    finally { loader.stop(); busy = false; $("bundleImport").disabled = false; load(); }
+  };
+
   $("reindexAll").onclick = async event => {
     if (busy || !confirm("Barcha mahsulotlar saqlangan rasmlaridan qayta o‘rganilsinmi? Fonli rasmlarda mahsulot avtomatik ajratib olinadi. Bu bir necha daqiqa olishi mumkin.")) return;
     const button = event.currentTarget;
@@ -443,6 +467,7 @@ export default function mountPage() {
     } else {
       $("addBtn").hidden = false;
       $("reindexAll").hidden = false;
+      $("bundleImport").hidden = false;
     }
     await load();
   }

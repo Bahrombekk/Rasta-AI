@@ -1,5 +1,6 @@
 """Veb-ilova API testi — og'ir modellarsiz (soxta pipeline + xotiradagi katalog)."""
 import io
+import json
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -409,3 +410,55 @@ def test_catalog_remembers_embedder(tmp_path):
     other.mark_current()
     other._close()
     assert SkuCatalog(dim=4, path=p, collection="m", embedder="model=B").stale is None
+
+
+def bundle(products, files):
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("catalog.json", json.dumps({"format": "rasta-catalog", "version": 1, "products": products}))
+        for name, data in files.items():
+            z.writestr(name, data)
+    return {"file": ("katalog.zip", buf.getvalue(), "application/zip")}
+
+
+def test_catalog_bundle_round_trip(client):
+    import zipfile
+    client.post("/api/products", data={"name": "Cola", "brand": "ColaCo", "category": "Ichimlik", "barcode": "123456"},
+                files=[("files", ("a.jpg", jpg(), "image/jpeg"))])
+    client.post("/api/teach", files={"image": ("s.jpg", jpg(200, 150), "image/jpeg")},
+                data={"boxes": "[[10,10,60,120],[70,10,120,120]]", "sku_id": "cola"})
+    exported = client.get("/api/catalog/export")
+    assert exported.status_code == 200
+    names = set(zipfile.ZipFile(io.BytesIO(exported.content)).namelist())
+    assert {"catalog.json", "cola/000.jpg", "cola/000.box.json", "cola/c001.jpg", "cola/c002.jpg"} <= names
+
+    again = {"file": ("k.zip", exported.content, "application/zip")}
+    skipped = client.post("/api/catalog/import", files=again).json()
+    assert skipped["added"] == [] and skipped["skipped"][0]["sku_id"] == "cola"
+
+    assert client.delete("/api/products/cola").status_code == 200
+    result = client.post("/api/catalog/import", files=again).json()
+    assert result["failed"] == [] and result["added"][0]["images"] == 3
+    product = client.get("/api/products").json()["products"][0]
+    assert (product["name"], product["brand"], product["category"], product["barcode"], product["images"]) == (
+        "Cola", "ColaCo", "Ichimlik", "123456", 3)
+    saved = json.loads((web.State.images_dir / "cola" / "000.box.json").read_text())
+    assert saved["box"] == FakePipe.located
+
+
+def test_catalog_import_rejects_unsafe_or_broken_bundles(client, tmp_path):
+    bad = client.post("/api/catalog/import", files={"file": ("k.zip", b"not a zip", "application/zip")})
+    assert bad.status_code == 400
+    result = client.post("/api/catalog/import", files=bundle(
+        [{"sku_id": "../evil", "name": "Evil", "images": ["000.jpg"]},
+         {"sku_id": "escape", "name": "Escape", "images": ["../../x.jpg", "..\\x.jpg", "000.exe"]},
+         {"sku_id": "broken", "name": "Broken", "images": ["000.jpg"]},
+         {"sku_id": "good", "name": "Good", "images": ["c000.jpg"]}],
+        {"../evil/000.jpg": jpg(), "escape/../../x.jpg": jpg(), "broken/000.jpg": b"<html>", "good/c000.jpg": jpg()},
+    )).json()
+    assert [p["sku_id"] for p in result["added"]] == ["good"]
+    assert {p["name"] for p in result["failed"]} == {"Evil", "Escape", "Broken"}
+    assert sorted(p.name for p in web.State.images_dir.iterdir()) == ["good"]
+    assert not (tmp_path.parent / "x.jpg").exists()
+    assert [p["sku_id"] for p in client.get("/api/products").json()["products"]] == ["good"]

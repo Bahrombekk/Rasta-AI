@@ -33,6 +33,7 @@
     chart: '<path d="M4 4v16h16M8 16v-3m4 3V9m4 7V6"/>',
     report: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6m-6 4h6m-6 4h4"/>',
     download: '<path d="M12 3v12m-5-5 5 5 5-5M4 15v5h16v-5"/>',
+    upload: '<path d="M12 15V3m-5 5 5-5 5 5M4 15v5h16v-5"/>',
     building: '<path d="M4 21V4h12v17m0-11h4v11M2 21h20M8 8h4m-4 4h4m-4 4h4"/>',
     store: '<path d="M4 10v10h16V10M3 10l2-6h14l2 6M3 10c0 3 4 3 4 0 0 3 5 3 5 0 0 3 5 3 5 0 0 3 4 3 4 0M10 20v-5h4v5"/>',
     camera: '<path d="M4 7h4l2-3h4l2 3h4a1 1 0 0 1 1 1v11H3V8a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13" r="3"/>',
