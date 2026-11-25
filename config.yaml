@@ -96,6 +96,17 @@ recognition:
   # ajratadi (sinov: Pepsi bankasi Coca-Cola packshot'iga rang 0.44–0.53, haqiqiy
   # Coca-Cola >= 0.92). Grocery benchmarkiga ta'siri ~0.1 punkt.
   color_min_packshot: 0.6
+  # Rang color_min dan o'tgan, lekin shu chegaradan past bo'lsa — "variant": ko'rinishi shu
+  # mahsulotniki, rangi boshqa (bir xil dizayndagi boshqa ta'm). SKU sifatida sanalmaydi,
+  # brend ulushiga kiradi, operatorga "o'xshaydi, lekin rangi farq qiladi" deb ko'rsatiladi.
+  # Real o'lchov: haqiqiy mos kelganlar 0.78-0.98 (DENA javoni 10 ta, micco kivi 2 ta),
+  # bir xil dizayndagi boshqa ta'mlar 0.58-0.75 (micco nok / anor / apelsin-mango).
+  color_same_packshot: 0.76
+  # Vektor (ko'rinish) o'xshashligining o'zi uchun quyi chegara. Umumiy ball rang va shakl
+  # bonusini ham o'z ichiga oladi: sariq-yashil "Наш сад" shishasi DENA kartoniga ko'rinishi
+  # 0.58 bo'lsa ham rangi (0.81) hisobiga 0.65 dan o'tib "tanilgan". Haqiqiy mos kelganlar:
+  # DENA 0.62-0.94, micco kivi 0.62-0.65; sintetik va cola benchmarklari o'zgarmaydi.
+  embed_min_packshot: 0.60
   candidates: 48        # qayta reyting uchun olinadigan nuqtalar soni
   # Boshqa mahsulotlar bazasi (foto arxividan 2 657 ta real mahsulot klasteri):
   # so'rov bazadagi mahsulotga katalogdagidan neg_margin dan ko'proq o'xshasa -> noma'lum.

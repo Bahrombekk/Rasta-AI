@@ -46,6 +46,15 @@ class RecognitionParams:
     w_shape: float = 0.0
     color_min: float = 0.0
     color_min_packshot: float | None = None      # packshot'dan qurilgan SKU uchun rang veto'si
+    # Rang shu chegaradan past (lekin color_min dan yuqori) bo'lsa — "variant": ko'rinishi shu
+    # mahsulotniki, rangi boshqa (bir xil dizayndagi boshqa ta'm). SKU sifatida sanalmaydi,
+    # brend ulushiga kiradi. None = o'chiq.
+    color_same: float | None = None
+    color_same_packshot: float | None = None
+    # Vektor (ko'rinish) o'xshashligining o'zi uchun quyi chegara: rang va shakl bonusi
+    # ko'rinishi mos kelmagan mahsulotni chegaradan o'tkazib yubormasligi kerak. None = o'chiq.
+    embed_min: float | None = None
+    embed_min_packshot: float | None = None
     shape_sigma: float = 0.25
     candidates: int = 48           # qayta reyting uchun olinadigan nuqtalar soni
     # "Boshqa mahsulotlar" bazasi: so'rov bazadagi biror mahsulotga katalogdagidan
@@ -65,6 +74,16 @@ class RecognitionParams:
                 neg_margin = self.neg_margin_packshot
         return tau, color_min, neg_margin
 
+    def embed_min_for(self, source: str | None) -> float | None:
+        if source == "packshot" and self.embed_min_packshot is not None:
+            return self.embed_min_packshot
+        return self.embed_min
+
+    def color_same_for(self, source: str | None) -> float | None:
+        if source == "packshot" and self.color_same_packshot is not None:
+            return self.color_same_packshot
+        return self.color_same
+
     @classmethod
     def from_cfg(cls, cfg) -> "RecognitionParams":
         g = lambda k, d: cfg.get(f"recognition.{k}", d)  # noqa: E731
@@ -78,6 +97,10 @@ class RecognitionParams:
             w_shape=g("w_shape", 0.0),
             color_min=g("color_min", 0.0),
             color_min_packshot=g("color_min_packshot", None),
+            color_same=g("color_same", None),
+            color_same_packshot=g("color_same_packshot", None),
+            embed_min=g("embed_min", None),
+            embed_min_packshot=g("embed_min_packshot", None),
             shape_sigma=g("shape_sigma", 0.25),
             candidates=g("candidates", 48),
             neg_margin=g("neg_margin", None),
@@ -539,12 +562,21 @@ class SkuCatalog:
         need_margin = params.min_margin
         if same_brand and params.brand_margin is not None:
             need_margin = max(need_margin, params.brand_margin)
-        is_known = (
+        csame = params.color_same_for(top1.get("src"))
+        emin = params.embed_min_for(top1.get("src"))
+        emb_ok = emin is None or top1["dino"] >= emin
+        passes = (
             score1 >= tau
+            and emb_ok
             and margin >= need_margin
             and top1["color"] >= cmin
             and neg_ok
         )
+        # Hammasi mos, faqat rang "aynan shu mahsulot" darajasida emas: bir xil dizayndagi
+        # boshqa ta'm/tur (yashil kivi o'rniga sariq nok). SKU deb sanalmaydi, lekin
+        # operatorga "o'xshaydi, rangi farq qiladi" deb ko'rsatiladi.
+        variant = passes and csame is not None and color is not None and top1["color"] < csame
+        is_known = passes and not variant
         cands = [{k: (round(v, 4) if isinstance(v, float) else v) for k, v in r.items()}
                  for r in ranked[: params.top_k]]
         if neg_score is not None and cands:
@@ -554,10 +586,12 @@ class SkuCatalog:
         brand_only = (
             not is_known
             and score1 >= tau
+            and emb_ok
             and top1["color"] >= cmin
             and neg_ok
             and same_brand
         )
+        level = "sku" if is_known else ("variant" if variant else ("brand" if brand_only else None))
         return Match(
             sku_id=top1["sku_id"] if is_known else None,
             name=top1["name"] if is_known else None,
@@ -565,8 +599,8 @@ class SkuCatalog:
             margin=margin,
             is_known=is_known,
             candidates=cands,
-            brand=top1.get("brand") if (is_known or brand_only) else None,
-            level="sku" if is_known else ("brand" if brand_only else None),
+            brand=top1.get("brand") if (is_known or brand_only or variant) else None,
+            level=level,
             negative_score=neg_score,
         )
 

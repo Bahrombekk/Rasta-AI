@@ -170,6 +170,11 @@ def test_explain_reports_why_a_box_was_or_was_not_recognised():
     assert web.explain(det(0.70, False, margin=0.0), params)["r"] == "ambiguous"
     assert web.explain(det(0.70, False), params)["r"] == "size"                # barcha shartlar o'tgan, lekin bekor qilingan
     assert web.explain(Detection(Box(0, 0, 1, 1)), params) == {"r": "empty"}
+    weak = RecognitionParams(sim_threshold_packshot=0.65, embed_min_packshot=0.6)
+    assert web.explain(det(0.66, False, dino=0.58), weak)["r"] == "weak"
+    variant = det(0.70, False, color=0.7)
+    variant.match.level = "variant"
+    assert web.explain(variant, params) == {"n": "Juice", "sc": 0.7, "tau": 0.65, "m": 0.2, "r": "variant", "c": 0.7}
 
 
 def test_product_add_list_delete(client):

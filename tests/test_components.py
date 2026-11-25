@@ -101,6 +101,54 @@ def test_color_veto_rejects_unknown():
     assert not m.is_known and m.sku_id is None
 
 
+def test_variant_when_only_the_colour_differs():
+    """Bir xil dizayndagi boshqa ta'm: o'xshashlik yetarli, rang "aynan shu" darajasida emas."""
+    from rasta.kpi import compute_kpi
+    from rasta.types import Box, Detection
+
+    green = color_descriptor(solid((90, 200, 60)))
+    lime = color_descriptor(solid((150, 200, 60)))
+    hits = [_hit("kiwi", 0.80, green)]
+    hits[0].payload["brand"] = "micco"
+    base = RecognitionParams(sim_threshold=0.5, min_margin=0.0)
+    c = SkuCatalog.decide(hits, base, lime).candidates[0]["color"]
+    assert 0.05 < c < 0.99
+    strict = RecognitionParams(sim_threshold=0.5, min_margin=0.0, color_min=c - 0.05, color_same=c + 0.01)
+    m = SkuCatalog.decide(hits, strict, lime)
+    assert not m.is_known and m.sku_id is None and m.level == "variant" and m.brand == "micco"
+    assert m.candidates[0]["sku_id"] == "kiwi"                      # nimaga o'xshashi saqlanadi
+    loose = RecognitionParams(sim_threshold=0.5, min_margin=0.0, color_min=c - 0.05, color_same=c - 0.01)
+    assert SkuCatalog.decide(hits, loose, lime).level == "sku"
+    assert SkuCatalog.decide(hits, strict, green).level == "sku"    # rangi mos — oddiy tanish
+    veto = RecognitionParams(sim_threshold=0.5, min_margin=0.0, color_min=c + 0.01, color_same=c + 0.02)
+    assert SkuCatalog.decide(hits, veto, lime).level is None        # rang butunlay boshqa — noma'lum
+    assert SkuCatalog.decide(hits, strict).level == "sku"           # rang o'lchanmagan — qoida ishlamaydi
+    # KPI: SKU sifatida sanalmaydi, brend ulushiga kiradi
+    d = Detection(Box(0, 0, 50, 100)); d.match = m
+    kpi = compute_kpi([d], [], 1)
+    assert kpi["num_known"] == 0 and kpi["num_variant"] == 1 and kpi["num_variant_no_brand"] == 0
+    assert kpi["brand_share"]["micco"]["facings"] == 1
+
+
+def test_embedding_floor_stops_colour_carrying_a_weak_match():
+    """Rang bonusi ko'rinishi mos kelmagan mahsulotni chegaradan o'tkazmasligi kerak."""
+    yellow = color_descriptor(solid((230, 200, 40)))
+    hits = [_hit("dena", 0.58, yellow)]
+    hits[0].payload.update(src="packshot", brand="DENA")
+    p = RecognitionParams(sim_threshold=0.76, sim_threshold_packshot=0.65, min_margin=0.0, w_color=0.25)
+    m = SkuCatalog.decide(hits, p, yellow)
+    assert m.is_known and m.score >= 0.65                           # 0.75*0.58 + 0.25*1.0
+    p.embed_min_packshot = 0.60
+    m = SkuCatalog.decide(hits, p, yellow)
+    assert not m.is_known and m.level is None and m.score >= 0.65
+    hits[0].score = 0.62
+    assert SkuCatalog.decide(hits, p, yellow).is_known
+    hits[0].payload["src"] = "crop"                                 # crop SKU'ga packshot chegarasi tegmaydi
+    hits[0].score = 0.58
+    p2 = RecognitionParams(sim_threshold=0.6, min_margin=0.0, w_color=0.25, embed_min_packshot=0.60)
+    assert SkuCatalog.decide(hits, p2, yellow).is_known
+
+
 def test_catalog_inmemory_roundtrip():
     cat = SkuCatalog(dim=4, path=":memory:", collection="t")
     rng = np.random.default_rng(0)

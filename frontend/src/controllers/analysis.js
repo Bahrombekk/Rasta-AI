@@ -49,9 +49,11 @@ export default function mountPage() {
     $("whyText").textContent = ({
       ok: `Tanildi: ${why.n}. O‘xshashlik ${pct(why.sc)}, chegara ${pct(why.tau)}.`,
       context: `Qo‘shni mahsulotlarga qarab tanildi: ${why.n} (o‘xshashlik ${pct(why.sc)}, chegara ${pct(why.tau)}).`,
+      variant: `${why.n} ga o‘xshaydi (o‘xshashlik ${pct(why.sc)}), lekin rangi farq qiladi (rang mosligi ${pct(why.c ?? 0)}). Bu shu mahsulotning boshqa ta’mi yoki turi bo‘lishi mumkin — alohida mahsulot sifatida qo‘shing.`,
       brand: `Faqat brend aniqlandi: ikki o‘xshash mahsulot orasida farq juda kichik (${pct(why.m)}).`,
       empty: "Katalog bo‘sh — taqqoslash uchun mahsulot yo‘q.",
       low: `Tanilmadi: ${near}. Bu mahsulot katalogda yo‘q yoki uning namunasi yetarli emas.`,
+      weak: `Tanilmadi: ${near}, lekin bu asosan rangi va shakli o‘xshagani uchun — yorlig‘i va ko‘rinishi mos emas (${pct(why.e ?? 0)}).`,
       color: `Tanilmadi: ${near}, lekin rangi mos kelmadi (${pct(why.c ?? 0)}).`,
       other: `Tanilmadi: ${near}, lekin u katalogda yo‘q boshqa mahsulotga ko‘proq o‘xshaydi.`,
       ambiguous: `Tanilmadi: ${near}, lekin ikkinchi nomzoddan farqi juda kichik (${pct(why.m)}).`,
@@ -150,6 +152,11 @@ export default function mountPage() {
         const [x1, y1, x2, y2] = scaledBox(d.b);
         const col = d.s ? R.colors[d.s] : null;
         const on = !hl || d.s === hl;
+        if (!col && d.v) {            // o'xshaydi, lekin rangi farq qiladi: uzuq sariq ramka
+          ctx.save(); ctx.globalAlpha = hl ? .3 : 1;
+          ctx.setLineDash([lw * 3, lw * 2]); ctx.lineWidth = lw * 1.1; ctx.strokeStyle = "#f59e0b";
+          ctx.strokeRect(x1, y1, x2 - x1, y2 - y1); ctx.restore(); return;
+        }
         if (!col) {
           ctx.lineWidth = Math.max(1, lw * .6); ctx.strokeStyle = on && !hl ? "rgba(255,255,255,.75)" : "rgba(255,255,255,.25)";
           ctx.strokeRect(x1, y1, x2 - x1, y2 - y1); return;
@@ -358,6 +365,7 @@ export default function mountPage() {
 
     const notes = [];
     if (canTeach) notes.push(["poly", "Mahsulotni rasmda bosib tanlang va katalogga qo‘shing."]);
+    if (s.num_variant > 0) notes.push(["info", `${s.num_variant} ta mahsulot katalogdagiga o‘xshaydi, lekin rangi farq qiladi (sariq uzuq ramka) — boshqa ta’m bo‘lishi mumkin. Ustiga bosib ko‘ring.`]);
     if (s.num_unknown > 0) notes.push(["info", `${s.num_unknown} ta mahsulotning SKU’si aniqlanmadi.`]);
     if (s.oos_status === "limited_scene") notes.push(["alert", "Bo‘sh o‘rinlarni aniqroq baholash uchun javonni old tomondan suratga oling yoki zona belgilang.", "warn"]);
     if (s.oos_status === "insufficient_products") notes.push(["info", "Bo‘sh o‘rinlar bahosi uchun kamida bitta qatorda ikki mahsulot aniqlanishi kerak."]);

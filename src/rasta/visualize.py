@@ -113,6 +113,9 @@ def draw_result(image: np.ndarray, result: AnalysisResult, show_scores: bool = T
         elif d.match and d.match.level == "brand":
             color = _color_for(f"brand:{d.match.brand}")
             label = f"{d.match.brand} (SKU?)"
+        elif d.match and d.match.level == "variant" and d.match.candidates:
+            color = _color_for(f"brand:{d.match.brand or d.match.candidates[0].get('sku_id')}")
+            label = f"{d.match.candidates[0].get('name')} (rang?)"
         elif d.cluster >= 0:
             color = _color_for(f"cluster{d.cluster}")
             color = tuple(int(0.5 * c + 0.5 * 150) for c in color)

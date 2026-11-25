@@ -393,3 +393,30 @@ qolgan qutilarni ajratish AUROC 0.995 (joriy) → 1.000. Almashtirish narxi: 3�
 embedding, chegaralarni qayta kalibrlash, negativ bazani qayta qurish, barcha kataloglarni qayta
 indekslash. Xulosa: hozir almashtirilmaydi; server GPU kuchaytirilganda birinchi nomzod — so400m,
 packshot-katalog uchun — SigLIP2-base-384/512.
+
+### 11d. Bir xil dizayndagi boshqa ta'm va rang hisobiga "tanish" — 2026-11-25
+Real sinov: foydalanuvchining muzlatgichi (2 kadr), katalogda `micco KIWI` (2 foto, betonda)
+va `DENA` (2 foto). Boshlang'ich holat: micco nok (PEAR) "KIWI" deb, "Наш сад" nok shishasi
+"DENA" deb tanilgan.
+
+| Quti | umumiy ball | vektor | rang | negativ farqi | Eski qaror | Yangi qaror |
+|---|---|---|---|---|---|---|
+| micco KIWI (orqasi bilan), 2 kadr | 0.727 / 0.710 | ~0.63 | 0.90 / 0.91 | 0.06 / 0.08 | tanildi | tanildi |
+| micco PEAR | 0.709 | ~0.69 | 0.70 | 0.11 | **KIWI** | variant (rangi farq qiladi) |
+| micco ORANGE & MANGO | 0.730 | ~0.76 | 0.58 | 0.09 | noma'lum (rang) | noma'lum (rang) |
+| "Наш сад" nok -> DENA, 2 kadr | 0.653 / 0.652 | 0.576 / 0.580 | 0.81 | 0.11 / 0.10 | **DENA** | noma'lum (kuchsiz) |
+| DENA javoni, haqiqiy 10 ta | 0.68–0.94 | 0.62–0.94 | 0.78–0.98 | <= 0.06 | tanildi | tanildi |
+
+- `recognition.color_same_packshot: 0.76` — hammasi mos, lekin rang 0.60–0.76 oralig'ida bo'lsa
+  "variant": SKU sifatida sanalmaydi, brend ulushiga kiradi, interfeysda sariq uzuq ramka va
+  "o'xshaydi, lekin rangi farq qiladi" izohi. Qo'shniga qarab SKU'ga aylantirilmaydi.
+- `recognition.embed_min_packshot: 0.60` — vektor o'xshashligining o'zi uchun quyi chegara:
+  rang (0.25) va shakl (0.05) bonusi ko'rinishi mos kelmagan qutini chegaradan o'tkazmaydi.
+- Regressiya: `benchmark_synthetic --n 100` aniqlik 0.5531 -> 0.5582 (noma'lumni rad etish
+  0.574 -> 0.627, ma'lumni tanish 0.549 -> 0.544); cola javoni 71/73 (o'zgarmadi); DENA javoni
+  10/11, xato 0 (o'zgarmadi).
+- Rad etildi: birlashtirishdan keyingi minimal ball (`min_score`) — aks/yorliq bo'laklarini
+  olib tashlaydi, lekin agent rasmlarida recall 0.897 -> 0.827 (0.12 da); bitta o'tishda past
+  ishonch bilan topilgan qutilarning ko'pi haqiqiy mahsulot. Segmentatsiya (SAM niqobi):
+  DENA javonida ajralish +0.01–0.03, tahlilga 3–5 s qo'shadi — qo'shilmadi.
+- Chegara: 2 ta muzlatgich kadri + 1 javon; chegaralar (0.76, 0.60) shu ma'lumotga sozlangan.

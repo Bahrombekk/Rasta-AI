@@ -50,6 +50,7 @@ class Match:
     brand: Optional[str] = None
     # "sku"   — SKU aniq tanildi
     # "brand" — SKU noaniq (masalan 0.5L vs 1L egizaklar), lekin brend aniq
+    # "variant" — eng yaqin SKU'ga o'xshaydi, lekin rangi farq qiladi (boshqa ta'm/tur)
     # None    — noma'lum
     level: Optional[str] = None
     negative_score: Optional[float] = None

@@ -342,7 +342,9 @@ def explain(d, params) -> dict:
     r: ok | context (qo'shnilar bo'yicha) | brand (faqat brend) | empty (katalog bo'sh) |
        low (o'xshashlik chegaradan past) | color (rang mos emas) | other (katalogda yo'q
        boshqa mahsulotga ko'proq o'xshaydi) | ambiguous (ikki SKU orasida) | size (o'lchami
-       shu SKU'ning boshqa donalaridan farq qiladi).
+       shu SKU'ning boshqa donalaridan farq qiladi) | variant (o'xshaydi, lekin rangi farq
+       qiladi — bir xil dizayndagi boshqa ta'm bo'lishi mumkin) | weak (ball chegaradan
+       faqat rang/shakl hisobiga o'tgan, ko'rinishning o'zi mos emas).
     n — eng yaqin mahsulot, sc — o'xshashlik, tau — chegara, m — 2-nomzoddan farq.
     """
     m = d.match
@@ -355,10 +357,14 @@ def explain(d, params) -> dict:
     neg = top.get("neg")
     if m.is_known:
         info["r"] = "context" if d.context_fixed else "ok"
+    elif m.level == "variant":
+        info["r"], info["c"] = "variant", round(float(top.get("color", 0.0)), 3)
     elif m.level == "brand":
         info["r"] = "brand"
     elif m.score < tau:
         info["r"] = "low"
+    elif (emin := params.embed_min_for(top.get("src"))) is not None and float(top.get("dino", 1.0)) < emin:
+        info["r"], info["e"] = "weak", round(float(top.get("dino", 0.0)), 3)
     elif float(top.get("color", 1.0)) < color_min:
         info["r"], info["c"] = "color", round(float(top.get("color", 0.0)), 3)
     elif neg is not None and neg_margin is not None and m.score < neg - neg_margin:
@@ -384,6 +390,8 @@ def geometry(result, params=None) -> dict:
             "s": m.sku_id if (m and m.is_known) else None,
             "brand": m.brand if (m and m.level == "brand") else None,
         }
+        if m and m.level == "variant" and m.candidates:
+            item["v"] = m.candidates[0].get("sku_id")      # shunga o'xshaydi, rangi boshqa
         if params is not None:
             item["why"] = explain(d, params)
         dets.append(item)
@@ -414,7 +422,8 @@ def summarize(result, colors: dict[str, str]) -> dict:
     return {
         "num_products": k["num_products"],
         "num_known": k["num_known"],
-        "num_unknown": k["num_unknown"] - k.get("num_brand_only", 0),
+        "num_unknown": k["num_unknown"] - k.get("num_brand_only", 0) - k.get("num_variant_no_brand", 0),
+        "num_variant": k.get("num_variant", 0),
         "recognition_rate": k["recognition_rate_pct"],
         "fill_pct": k.get("roi_shelf_fill_pct"),
         "area_fill_pct": k.get("roi_fill_pct"),

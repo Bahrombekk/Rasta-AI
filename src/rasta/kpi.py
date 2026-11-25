@@ -52,8 +52,10 @@ def compute_kpi(
     # Brend darajasidagi ulush (raqobatchi tahlili)
     brand_share: dict[str, dict] = {}
     # SKU noaniq, lekin brend aniq bo'lgan mahsulotlar ham brend ulushiga kiradi
+    # ... va rangi farq qiladigan variantlar ham (o'sha brendning boshqa ta'mi)
     brand_only = [d for d in detections if d.match and not d.match.is_known
-                  and d.match.level == "brand" and d.match.brand]
+                  and d.match.level in ("brand", "variant") and d.match.brand]
+    variants = [d for d in detections if d.match and d.match.level == "variant"]
     if brand_of or brand_only:
         brand_of = brand_of or {}
         b_facings: dict[str, int] = defaultdict(int)
@@ -85,6 +87,8 @@ def compute_kpi(
         "num_known": len(known),
         "num_unknown": unknown,
         "num_brand_only": len(brand_only),
+        "num_variant": len(variants),
+        "num_variant_no_brand": sum(1 for d in variants if not d.match.brand),
         "recognition_rate_pct": round(100.0 * len(known) / total, 1) if total else 0.0,
         "num_rows": num_rows,
         "distinct_skus": len(facings),

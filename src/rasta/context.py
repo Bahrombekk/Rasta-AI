@@ -50,7 +50,9 @@ def smooth_with_context(
         med_w = float(np.median([d.box.width for d in row_dets]))
         updates = []
         for i, d in enumerate(row_dets):
-            if d.match is None or d.match.is_known or d.match.level == "brand" or not d.match.candidates:
+            # brend/variant darajasidagilar qo'shniga qarab SKU'ga aylantirilmaydi
+            # (ikki kivi orasidagi nok — kivi emas)
+            if d.match is None or d.match.is_known or d.match.level or not d.match.candidates:
                 continue
             left, right = _neighbors(row_dets, i, max_gap=0.5 * med_w)
             if left is None or right is None:
@@ -139,7 +141,7 @@ def propagate_identical(
                 ref = row_dets[known_idx[0]].match
                 for k in block:
                     d = row_dets[k]
-                    if d.match is None or d.match.is_known or d.match.level == "brand":
+                    if d.match is None or d.match.is_known or d.match.level:
                         continue
                     # identiklikni tanilgan a'zo(lar)ga nisbatan tasdiqlash
                     if max(_cos(d.vec, row_dets[m].vec) for m in known_idx) < sim:
