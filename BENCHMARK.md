@@ -420,3 +420,46 @@ va `DENA` (2 foto). Boshlang'ich holat: micco nok (PEAR) "KIWI" deb, "Наш с�
   ishonch bilan topilgan qutilarning ko'pi haqiqiy mahsulot. Segmentatsiya (SAM niqobi):
   DENA javonida ajralish +0.01–0.03, tahlilga 3–5 s qo'shadi — qo'shilmadi.
 - Chegara: 2 ta muzlatgich kadri + 1 javon; chegaralar (0.76, 0.60) shu ma'lumotga sozlangan.
+
+### 11e. Katalogga moslashish va "chuqurroq solishtirish" (qo'shilmadi) — 2026-11-25
+Ikki g'oya o'lchandi; ikkalasi ham hozircha tizimga qo'shilmadi.
+
+**Kattalashtirib, qismma-qism solishtirish** (muzlatgich, Ays shaftoli namunasi, boshqa kadr):
+
+| Usul | shaftoli (old) | shaftoli (burilgan) | o'rmon mevalari |
+|---|---|---|---|
+| butun shisha (joriy) | 0.88 | 0.81–0.85 | 0.87 |
+| uzun o'q bo'yicha 3 kvadrat bo'lak, yorliq bo'lagi | 0.88 | 0.86–0.87 | 0.88 |
+| DINOv2 patch-tokenlarini zich moslash (448 px) | 0.83 | 0.81–0.82 | 0.84 |
+
+Bir xil shishaning burilishi ko'rinishni ta'm rasmidan ko'proq o'zgartiradi — ajralish yo'q.
+Ishlagani: ikkala ta'm katalogda (har biridan 1 quti) — o'rmon mevalari 0.98 ga 0.87 bilan to'g'ri,
+burilgan 3 shisha brend darajasida; shaftoliga 2 old + 2 burilgan quti berilganda hammasi SKU
+darajasida (0.97–0.98 ga 0.87–0.89).
+
+**Katalogga moslashish** — katalog namunalaridan SKU ichidagi og'ishlar (namuna − SKU o'rtachasi)
+fazosi topiladi va uning vazni pasaytiriladi (W = (αS_w + (1−α)I)^−1/2, α = 0.9; hisoblash ~1 s
+CPU, tahlilga +10 ms).
+
+| RP2K (real crop, rang+shakl bilan, 20 urug') | yopiq: joriy -> moslashgan | ochiq (holdout) |
+|---|---|---|
+| 5 SKU × 3 namuna | 0.977 -> 0.984 | 0.870 -> 0.884 |
+| 10 SKU × 3 | 0.938 -> 0.958 | 0.846 -> 0.867 |
+| 20 SKU × 3 | 0.898 -> 0.936 | 0.791 -> 0.823 |
+| 45 SKU × 5 | 0.880 -> 0.932 | 0.761 -> 0.813 |
+| 90 SKU × 5 | 0.839 -> 0.902 | 0.720 -> 0.786 |
+
+- "Umumiy" variant (kovariatsiya boshqa mahsulotlardan): shu to'plamning boshqa 40 SKU'sidan —
+  k=1 da 0.594 -> 0.639; aptash arxivi klasterlaridan (85 000 crop) — RP2K'da **yomonlashtiradi**
+  (k=1: 0.557 -> 0.49–0.53). Ya'ni domenlar orasida o'tmaydi.
+- Chiziqli sinflagich (logistik regressiya): k=5 da ochiq 0.753 — moslashishdan yaxshi emas,
+  kam namunada buziladi.
+- To'liq tizimda (sinov bayrog'i bilan): cola javoni 73/73 va 71/73 — o'zgarmadi; DENA javoni
+  (2 foto) — haqiqiy va begona ballar birga ko'tariladi, ajralish +0.007 -> +0.007; muzlatgich
+  (2–3 SKU) — ballar ±0.01–0.03, qarorlar o'zgarmadi.
+- `benchmark_synthetic --n 100` (packshot + augmentatsiya katalogi): yopiq 0.927 -> 0.971, lekin
+  tanish/notanish AUROC 0.982 -> 0.927, kalibrlangan ochiq aniqlik 0.887 -> 0.868 (notanishni rad
+  etish 0.85 -> 0.52).
+- Xulosa: foyda katalog katta (20+ SKU) va har SKU'da 3+ real javon qutisi bo'lganda; hozirgi
+  kichik, asosan foto-namunali kataloglarda foyda yo'q, notanishni rad etish esa yomonlashishi
+  mumkin. Sharti bajarilganda qayta ko'riladi (faqat `src: crop` namunalardan o'rganish bilan).
