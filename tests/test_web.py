@@ -211,6 +211,31 @@ def test_admin_password(client, monkeypatch):
     assert ok.status_code == 200
 
 
+def test_analysis_can_be_limited_to_the_products_on_the_shelf(client):
+    photo = [("files", ("a.jpg", jpg(), "image/jpeg"))]
+    for name in ("Cola", "Fanta", "Sprite"):
+        assert client.post("/api/products", data={"name": name, "brand": "Co"}, files=photo).status_code == 200
+    listed = client.get("/api/analyze/products").json()["products"]
+    assert [p["sku_id"] for p in listed] == ["cola", "fanta", "sprite"]
+    assert set(listed[0]) == {"sku_id", "name", "brand", "thumb"}
+
+    seen = []
+    pipe = web.State.pipe
+    original = pipe.analyze_image
+    pipe.analyze_image = lambda img, **kw: (seen.append(kw.get("skus")), original(img, **kw))[1]
+    image = {"image": ("s.jpg", jpg(), "image/jpeg")}
+    assert client.post("/api/analyze", files=image).json().get("scope") is None
+    data = client.post("/api/analyze", files=image, data={"skus": '["cola", "fanta", "gone"]'}).json()
+    assert data["scope"] == 2 and seen[-1] == ["cola", "fanta"]       # katalogda yo'q SKU tashlanadi
+    everything = client.post("/api/analyze", files=image, data={"skus": '["cola", "fanta", "sprite"]'}).json()
+    assert "scope" not in everything and seen[-1] is None             # hammasi tanlangan — cheklov yo'q
+    for bad in ('["gone"]', "[]", "oops", '{"a": 1}', "[1, 2]"):
+        assert client.post("/api/analyze", files=image, data={"skus": bad}).status_code == 400
+    region = client.post("/api/analyze", files=image, data={"skus": '["cola"]', "roi": "[[0,0],[1,0],[1,1]]",
+                                                            "roi_normalized": "true"})
+    assert region.status_code == 200 and region.json()["scope"] == 1
+
+
 def test_analyze_whole_and_zone(client):
     r = client.post("/api/analyze", files={"image": ("s.jpg", jpg(), "image/jpeg")})
     d = r.json()

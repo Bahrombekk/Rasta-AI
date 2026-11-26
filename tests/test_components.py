@@ -359,6 +359,30 @@ def test_numpy_search_matches_qdrant():
         assert a.sku_id == b.sku_id and abs(a.score - b.score) < 1e-4
 
 
+def test_search_can_be_limited_to_the_products_on_the_shelf():
+    rng = np.random.default_rng(3)
+    cat = SkuCatalog(dim=16, path=":memory:", collection="scope")
+    base = rng.normal(size=16); base /= np.linalg.norm(base)
+    for k, name in enumerate(("apple", "berry", "orange")):
+        v = base + rng.normal(size=(3, 16)) * 0.05             # uchala ta'm bir-biriga juda o'xshash
+        v /= np.linalg.norm(v, axis=1, keepdims=True)
+        cat.add_sku(name, name.title(), v)
+    q = (base + rng.normal(size=(5, 16)) * 0.05)[:2]
+    q /= np.linalg.norm(q, axis=1, keepdims=True)
+    p = RecognitionParams(sim_threshold=0.1, min_margin=0.02, w_color=0.0, w_shape=0.0)
+    for local in (True, False):                                # numpy va Qdrant yo'llari bir xil
+        cat.is_local = local
+        whole = cat.search(q, p)
+        assert all(not m.is_known for m in whole)              # uchovi teng — noaniq
+        only = cat.search(q, p, allowed={"berry"})
+        assert all(m.sku_id == "berry" and m.is_known for m in only)      # raqobatchi yo'q — aniq
+        assert all({c["sku_id"] for c in m.candidates} == {"berry"} for m in only)
+        two = cat.search(q, p, allowed={"apple", "orange"})
+        assert all(m.sku_id != "berry" and "berry" not in {c["sku_id"] for c in m.candidates} for m in two)
+        assert all(m.sku_id is None and not m.is_known for m in cat.search(q, p, allowed=set()))
+        assert all(not m.is_known for m in cat.search(q, p, allowed={"nothing-like-it"}))
+
+
 def test_cache_invalidated_on_add():
     cat = SkuCatalog(dim=4, path=":memory:", collection="inv")
     v = np.eye(4, dtype=np.float32)

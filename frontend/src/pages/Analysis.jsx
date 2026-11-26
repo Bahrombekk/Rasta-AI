@@ -62,6 +62,22 @@ export default function Analysis() {
 
           <aside className="side">
 
+            <section className="card card-pad scope-card" id="scopeCard" hidden>
+              <div className="scope-head">
+                <div><p className="section-title">Qidiruv doirasi</p><p id="scopeSummary"></p></div>
+                <button className="btn" id="scopeToggle" type="button" aria-expanded="false" aria-controls="scopeBody">Tanlash</button>
+              </div>
+              <div id="scopeBody" hidden>
+                <p className="analysis-help">Javonda aynan qaysi mahsulotlar borligini bilsangiz, faqat shularni belgilang: tizim ular orasidan izlaydi va boshqa mahsulotlar bilan adashmaydi.</p>
+                <input className="input" id="scopeSearch" type="search" placeholder="Mahsulot yoki brend qidirish" autoComplete="off" />
+                <div className="scope-actions">
+                  <button className="btn ghost" id="scopeAll" type="button">Hammasi</button>
+                  <button className="btn ghost" id="scopeNone" type="button">Hech biri</button>
+                </div>
+                <div className="scope-list" id="scopeList"></div>
+              </div>
+            </section>
+
             <section className="card card-pad" id="pre">
               <h2 className="section-title">Rasm tayyor</h2>
               <p className="analysis-help">Rasmda bir nechta javon bo‘lsa, keraklisini <strong>Zona belgilash</strong> orqali tanlang.</p>

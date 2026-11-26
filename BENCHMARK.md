@@ -621,7 +621,7 @@ To'g'ri tanish o'smaydi, detektor esa bir necha qutini yo'qotadi: detektor rasmn
 embedding modeli har qutini 224 ga keltiradi — qo'shimcha piksel ularga yetib bormaydi. Asl o'lcham
 faqat OCR uchun foydali va u allaqachon asl rasmdan o'qiydi.
 
-**Tahlilni katalogning bir qismi bilan cheklash (hozircha qo'shilmadi).** RP2K, 120 SKU, 25%
+**Tahlilni katalogning bir qismi bilan cheklash (foydalanuvchi so'rovi bilan qo'shildi — pastga qarang).** RP2K, 120 SKU, 25%
 mahsulot katalogda yo'q, xato (noto'g'ri SKU yoki yo'q mahsulotni tanish) 2% bo'ladigan chegarada
 to'g'ri tanilgan ulush (embedding'ning o'zi, 10 ta tasodifiy bo'linish):
 
@@ -635,9 +635,33 @@ to'g'ri tanilgan ulush (embedding'ning o'zi, 10 ta tasodifiy bo'linish):
 | javon assortimenti, 10 SKU | 36.2% | 52.9% | 57.7% |
 
 Mahsulot turi bo'yicha filtr kam beradi (+1–3 punkt): chalkashadigan mahsulotlar bir turga
-kiradi. Javonda aynan qaysi mahsulotlar turishi ma'lum bo'lsa (do'kon assortimenti / planogramma),
-foyda katta (+8…+30 punkt) — chunki chegarani pasaytirish mumkin bo'ladi. Chegarani o'zgartirmasdan
-filtr faqat noto'g'ri mosliklarni kamaytiradi (2.0% → 0.2–1.9%), to'g'ri tanishni deyarli oshirmaydi
-(+0.1…+0.9 punkt). Xato tanlangan ro'yxatda mahsulot "notanish" bo'lib qoladi (0.2–2% noto'g'ri
-moslik). Foyda katalog katta (o'nlab-yuzlab SKU) bo'lgandagina seziladi; do'konga assortiment
-biriktirish alohida ish sifatida qoldirildi.
+kiradi. Javonda aynan qaysi mahsulotlar turishi ro'yxati esa ancha ko'p beradi. Foydalanuvchi shuni
+so'radi: shirinliklar javonida katalogdagi 5–6 tasi bor, qolganlari yo'q va buni ko'rib turibdi.
+**Qo'shildi:** tahlil sahifasida "Qidiruv doirasi" — katalogdan javonda borlari belgilanadi
+(brend bo'yicha, qidiruv bilan), tizim faqat ular orasidan izlaydi (`catalog.search(allowed=…)`,
+`/api/analyze` ning `skus` maydoni, agent ham foydalana oladi). Hamma belgilansa cheklov yo'q;
+belgilanganlar sariq ramka bilan ko'rsatiladi, natijada ham izoh chiqadi; yangi o'rgatilgan mahsulot
+doiraga o'zi qo'shiladi. Rasm almashtirilganda tanlov saqlanadi; sahifa yangilanganda butun katalogga qaytadi.
+
+Chegarani o'zgartirmasdan, o'sha bitta embedding (RP2K, hamma sinov crop'lari katalogda bor, ball
+chegarasi butun katalogda 2% noto'g'ri moslik beradigan qilib tanlangan):
+
+| Qamrov | Noto'g'ri moslik (1 / 3 / 5 namuna) | To'g'ri tanish |
+|---|---|---|
+| butun katalog (120 SKU) | 2.0% / 2.0% / 2.0% | 14.6% / 23.1% / 25.6% |
+| javon assortimenti 60 SKU | 1.1% / 1.0% / 1.1% | 14.7% / 23.5% / 26.1% |
+| 30 SKU | 0.5% / 0.5% / 0.5% | 14.8% / 23.6% / 26.3% |
+| 10 SKU | 0.2% / 0.2% / 0.2% | 14.8% / 23.7% / 26.5% |
+
+Ya'ni noto'g'ri moslik 2–10 baravar kamayadi (foydalanuvchi taxmini to'g'ri), to'g'ri tanilganlar
+ulushi esa chegara o'zgarmasa deyarli oshmaydi (+0.1…+0.9 punkt). Chegarani pasaytirsa foyda katta
+(yuqoridagi jadval: 10 SKU da 27.6% → 57.7%), lekin buni qo'shmadim: haqiqiy javonda katalogda
+yo'q mahsulot ko'p (foydalanuvchining shirinlik javonida 118 qutidan 5 tasi katalogda), ularni
+ham "tanish" deb qo'yish xavfi oshadi. Kerak bo'lsa alohida sozlama sifatida, haqiqiy
+javonda o'lchab qo'shiladi. Mahsulot haqiqatda javonda bor, lekin ro'yxatga kiritilmagan bo'lsa,
+u tanilmaydi (noto'g'ri moslik 0.2–2.0%, tanilmay qoladigani 98–99.8%) — shuning uchun doira
+sahifada doim ko'rinib turadi.
+
+Tekshiruv: muzlatgich rasmida faqat "Ays Tea" (3 mahsulot) belgilandi — 24 qutidan faqat Ays
+mahsulotlari tanildi (29%), Micco va Наш сад qutilari "noma'lum"ga o'tdi; hammasi qayta belgilanganda
+oddiy natija qaytdi.

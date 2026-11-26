@@ -416,10 +416,14 @@ class SkuCatalog:
         params: Optional[RecognitionParams] = None,
         colors: Optional[np.ndarray] = None,
         aspects: Optional[list[float]] = None,
+        allowed: Optional[set] = None,
         **legacy,
     ) -> list[Match]:
-        """Har bir vektor uchun eng yaqin SKU'ni gibrid + open-set qoida bilan qaytaradi."""
-        from qdrant_client.models import QueryRequest
+        """Har bir vektor uchun eng yaqin SKU'ni gibrid + open-set qoida bilan qaytaradi.
+
+        allowed — qidiruv doirasi: faqat shu SKU'lar orasidan izlanadi (operator javonda
+        borini tanlagan). None — butun katalog. Bo'sh to'plam — hech narsa tanilmaydi."""
+        from qdrant_client.models import FieldCondition, Filter, MatchAny, QueryRequest
 
         if params is None:
             params = RecognitionParams(**legacy) if legacy else RecognitionParams()
@@ -431,11 +435,15 @@ class SkuCatalog:
         limit = max(params.candidates, params.top_k, 2)
         Qn = vectors / np.linalg.norm(vectors, axis=1, keepdims=True).clip(1e-6)
         neg = self._negative_scores(Qn, colors, aspects, params)
+        if allowed is not None and not allowed:
+            return [Match(None, None, 0.0, 0.0, False, []) for _ in range(len(vectors))]
         if self.is_local:
-            return self._search_numpy(vectors, params, colors, aspects, limit, neg)
+            return self._search_numpy(vectors, params, colors, aspects, limit, neg, allowed)
+        scope = None if allowed is None else Filter(
+            must=[FieldCondition(key="sku_id", match=MatchAny(any=sorted(allowed)))])
         responses = []
         for k in range(0, len(vectors), 64):
-            reqs = [QueryRequest(query=v.tolist(), limit=limit, with_payload=True)
+            reqs = [QueryRequest(query=v.tolist(), filter=scope, limit=limit, with_payload=True)
                     for v in vectors[k:k + 64]]
             responses.extend(self.client.query_batch_points(self.collection, requests=reqs))
 
@@ -494,10 +502,13 @@ class SkuCatalog:
         return NegativeBank.fused(Q, colors, aspects, nb.emb[keep], nb.color[keep],
                                   nb.aspect[keep], params).max(1)
 
-    def _search_numpy(self, vectors, params, colors, aspects, limit, neg=None) -> list[Match]:
+    def _search_numpy(self, vectors, params, colors, aspects, limit, neg=None, allowed=None) -> list[Match]:
         from types import SimpleNamespace
 
         G, pays = self._load_cache()
+        if allowed is not None and len(G):
+            keep = [j for j, p in enumerate(pays) if p.get("sku_id") in allowed]
+            G, pays = G[keep], [pays[j] for j in keep]
         if len(G) == 0:
             return [Match(None, None, 0.0, 0.0, False, []) for _ in range(len(vectors))]
         Q = vectors / np.linalg.norm(vectors, axis=1, keepdims=True).clip(1e-6)

@@ -177,8 +177,10 @@ class RastaPipeline:
         roi_mask: Optional[np.ndarray] = None,
         assume_frontal: bool = False,
         hires=None,
+        skus=None,
     ) -> AnalysisResult:
-        """detect_image — detektor uchun alternativ rasm (masalan poligon tashqarisi
+        """skus — qidiruv doirasi: javonda bor deb tanlangan SKU'lar (None — butun katalog).
+        detect_image — detektor uchun alternativ rasm (masalan poligon tashqarisi
         yopilgan); roi_mask — faqat shu maska ichidagi mahsulot/bo'shliqlar qoladi;
         hires — shu kadrning asl (kichraytirilmagan) nusxasi yoki uni qaytaradigan funksiya:
         yorliq yozuvi undan o'qiladi (2000 px li ish rasmida matn ko'pincha juda mayda)."""
@@ -229,7 +231,8 @@ class RastaPipeline:
             colors = color_descriptors(crops)
             aspects = [aspect_ratio(d.box.height, d.box.width) for d in detections]
             if self.catalog.count() > 0:
-                matches = self.catalog.search(vectors, self.params, colors, aspects)
+                matches = self.catalog.search(vectors, self.params, colors, aspects,
+                                              allowed=None if skus is None else set(skus))
                 for d, m in zip(detections, matches):
                     d.match = m
         t["recognize"] = (time.perf_counter() - t2) * 1000
@@ -430,7 +433,7 @@ class RastaPipeline:
         return summarize(labels, idx)
 
     def analyze_region(self, image: np.ndarray, region, image_path: str = "<array>",
-                       brand_of: Optional[dict] = None) -> AnalysisResult:
+                       brand_of: Optional[dict] = None, skus=None) -> AnalysisResult:
         """Faqat poligon (roi.Region) ichidagi javon/muzlatgichni tahlil qiladi.
 
         Zona kesiladi va kattalashtiriladi (roi.target_long), detektor tashqarisi
@@ -446,7 +449,7 @@ class RastaPipeline:
         res = self.analyze_image(work.image, image_path=image_path, brand_of=brand_of,
                                  detect_image=work.detect_image, roi_mask=work.mask,
                                  # 4 burchak bo'yicha to'g'rilangan zona — ta'rifiga ko'ra frontal
-                                 assume_frontal=work.Hinv is not None)
+                                 assume_frontal=work.Hinv is not None, skus=skus)
         h, w = image.shape[:2]
         return R.to_original(res, work, region, (w, h), image_path)
 

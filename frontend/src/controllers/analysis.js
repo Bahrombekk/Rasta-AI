@@ -38,6 +38,70 @@ export default function mountPage() {
       else item.removeAttribute("aria-current");
     }
   }
+  // ---------- qidiruv doirasi: javonda bor mahsulotlar ----------
+  let catalogItems = [];          // tahlil uchun katalog ro'yxati
+  let scope = null;               // null — butun katalog; Set — faqat shu SKU'lar orasidan izlash
+  async function loadScope() {
+    try {
+      const r = await rastaFetch("/api/analyze/products");
+      if (!r.ok) return;
+      catalogItems = (await r.json()).products || [];
+    } catch (e) { return; }
+    if (scope) for (const sku of [...scope]) if (!catalogItems.some(p => p.sku_id === sku)) scope.delete(sku);
+    renderScope();
+  }
+  function scopeSummary() {
+    const total = catalogItems.length;
+    $("scopeCard").classList.toggle("on", scope !== null);
+    $("scopeSummary").textContent = scope === null
+      ? `Butun katalog · ${total} ta mahsulot`
+      : scope.size ? `Faqat tanlangan ${scope.size} ta mahsulot orasidan (katalogda ${total} ta)`
+                   : "Hech narsa tanlanmagan — kamida bitta mahsulotni belgilang";
+  }
+  function renderScope() {
+    $("scopeCard").hidden = catalogItems.length < 2;          // bitta mahsulot bo'lsa tanlovning ma'nosi yo'q
+    scopeSummary();
+    const query = $("scopeSearch").value.trim().toLowerCase();
+    const shown = catalogItems.filter(p => !query || `${p.name} ${p.brand || ""}`.toLowerCase().includes(query));
+    const brands = new Map();
+    for (const p of shown) brands.set(p.brand || "Brendsiz", [...(brands.get(p.brand || "Brendsiz") || []), p]);
+    const on = sku => scope === null || scope.has(sku);
+    $("scopeList").innerHTML = shown.length ? [...brands].map(([brand, items]) => `
+      <div class="scope-brand"><span>${esc(brand)}</span>
+        <button class="btn ghost" type="button" data-brand="${esc(brand)}">${items.every(p => on(p.sku_id)) ? "Olib tashlash" : "Belgilash"}</button></div>
+      ${items.map(p => `<label class="scope-row"><input type="checkbox" data-sku="${esc(p.sku_id)}"${on(p.sku_id) ? " checked" : ""}>
+        ${p.thumb ? `<img class="th" src="${p.thumb}" alt="" loading="lazy">` : '<span class="th"></span>'}<span class="nm">${esc(p.name)}</span></label>`).join("")}`).join("")
+      : '<p class="analysis-help">Hech narsa topilmadi.</p>';
+    const apply = skus => {
+      for (const sku of skus.keys) {
+        if (scope === null) scope = new Set(catalogItems.map(p => p.sku_id));
+        skus.value ? scope.add(sku) : scope.delete(sku);
+      }
+      if (scope && scope.size === catalogItems.length) scope = null;       // hammasi belgilangan — cheklov yo'q
+      $("err").textContent = "";
+      renderScope();
+    };
+    $("scopeList").querySelectorAll("input[data-sku]").forEach(box => {
+      box.onchange = () => apply({ keys: [box.dataset.sku], value: box.checked });
+    });
+    $("scopeList").querySelectorAll("button[data-brand]").forEach(button => {
+      button.onclick = () => {
+        const items = brands.get(button.dataset.brand);
+        apply({ keys: items.map(p => p.sku_id), value: !items.every(p => on(p.sku_id)) });
+      };
+    });
+  }
+  $("scopeToggle").onclick = () => {
+    const open = $("scopeBody").hidden;
+    $("scopeBody").hidden = !open;
+    $("scopeToggle").setAttribute("aria-expanded", String(open));
+    $("scopeToggle").textContent = open ? "Yopish" : "Tanlash";
+  };
+  $("scopeSearch").oninput = renderScope;
+  $("scopeAll").onclick = () => { scope = null; $("err").textContent = ""; renderScope(); };
+  $("scopeNone").onclick = () => { scope = new Set(); renderScope(); };
+  loadScope();
+
   const sel = new Set();          // o'rgatish uchun tanlangan qutilar
   let picked = -1;                // oxirgi bosilgan quti (nega tanildi/tanilmadi izohi uchun)
   function whyUi() {
@@ -247,8 +311,13 @@ export default function mountPage() {
   async function analyze(btn) {
     if (!file || btn.disabled) return;
     if (drawing) { $("err").textContent = "Zonani yoping yoki bekor qiling."; return; }
+    if (scope !== null && !scope.size) {
+      $("err").textContent = "Qidiruv doirasida kamida bitta mahsulot belgilang yoki “Hammasi”ni bosing.";
+      $("pre").hidden = false; return;
+    }
     const fd = new FormData(); fd.append("image", file);
     if (activeVisit) fd.append("visit_id", String(activeVisit.id));
+    if (scope !== null) fd.append("skus", JSON.stringify([...scope]));
     if (closed) {
       fd.append("roi", JSON.stringify(pts.map(([x, y]) => [x / cv.width, y / cv.height])));
       fd.append("roi_normalized", "true");
@@ -373,6 +442,7 @@ export default function mountPage() {
 
     const notes = [];
     if (canTeach) notes.push(["poly", "Mahsulotni rasmda bosib tanlang va katalogga qo‘shing."]);
+    if (d.scope) notes.push(["info", `Qidiruv faqat tanlangan ${d.scope} ta mahsulot orasidan o‘tkazildi — katalogdagi boshqa mahsulotlar bu tahlilda tanilmaydi.`]);
     if (s.num_variant > 0) notes.push(["info", `${s.num_variant} ta mahsulot katalogdagiga o‘xshaydi, lekin rangi farq qiladi (sariq uzuq ramka) — boshqa ta’m bo‘lishi mumkin. Ustiga bosib ko‘ring.`]);
     if (s.num_unknown > 0) notes.push(["info", `${s.num_unknown} ta mahsulotning SKU’si aniqlanmadi.`]);
     if (s.oos_status === "limited_scene") notes.push(["alert", "Bo‘sh o‘rinlarni aniqroq baholash uchun javonni old tomondan suratga oling yoki zona belgilang.", "warn"]);
@@ -510,7 +580,8 @@ export default function mountPage() {
       const d = await r.json(); if (!r.ok) throw new Error(d.detail || "Xatolik");
       toast(`"${d.name}" ga ${d.added} ta namuna qo'shildi — qayta tahlil…`);
       sel.clear(); $("teachName").value = ""; $("teachBrand").value = ""; products = [];
-      await loadProducts(); teachUi(); analyze($("again"));
+      if (scope && d.sku_id) scope.add(d.sku_id);            // yangi mahsulot qidiruv doirasiga o'zi qo'shiladi
+      await loadScope(); await loadProducts(); teachUi(); analyze($("again"));
     } catch (e) { $("teachErr").textContent = e.message; }
     finally { loader.stop(); b.disabled = false; b.textContent = "Katalogga qo'shish"; }
   };

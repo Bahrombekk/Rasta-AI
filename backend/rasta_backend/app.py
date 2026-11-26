@@ -502,7 +502,7 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
                             or path == "/api/catalog/export")
             catalog_action = ((catalog_read and not path.startswith("/media/"))
                               or path in {"/api/teach", "/api/reindex", "/api/catalog/import"})
-            analysis_action = path == "/api/analyze" or path.startswith("/media/")
+            analysis_action = path == "/api/analyze" or path.startswith(("/api/analyze/", "/media/"))
             selected = request.query_params.get("organization")
             platform_read = catalog_read and request.method in {"GET", "HEAD"} and user.get("role") == "super_admin"
             if platform_read:
@@ -923,9 +923,24 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
             added.append({"sku_id": sku, "name": name, "images": count, "vectors": vectors})
         return {"added": added, "skipped": skipped, "failed": failed}
 
+    @app.get("/api/analyze/products")
+    def analysis_products():
+        """Tahlildan oldin "javonda qaysi mahsulotlar bor" deb tanlash uchun katalog ro'yxati.
+        Agent ham ko'ra oladi (katalogni boshqarish huquqisiz): faqat nom, brend va rasm."""
+        pipe = get_pipe()
+        out = []
+        with State.lock:
+            for sku, v in pipe.catalog.sku_info().items():
+                photos = image_files(sku)
+                out.append({"sku_id": sku, "name": v["name"], "brand": v.get("brand"),
+                            "thumb": f"/media/{sku}/{photos[0].name}" if photos else None})
+        out.sort(key=lambda r: ((r.get("brand") or "").lower(), r["name"].lower()))
+        return {"products": out}
+
     @app.post("/api/analyze")
     def analyze(request: Request, image: UploadFile = File(...), roi: str = Form(""),
-                roi_normalized: bool = Form(False), visit_id: int | None = Form(None, gt=0)):
+                roi_normalized: bool = Form(False), visit_id: int | None = Form(None, gt=0),
+                skus: str = Form("")):
         user = request.state.user
         visit = None
         if workspaces is not None and user["role"] == "operator":
@@ -961,13 +976,34 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
         # Yorliq yozuvi uchun asl o'lchamdagi nusxa — faqat OCR ulangan va noaniq quti bo'lsa ochiladi
         extra = ({"hires": lambda: read_image(upload, OCR_MAX_SIDE)}
                  if getattr(pipe, "label_reader", None) is not None else {})
+        scope = None
         with State.lock:
-            res = (pipe.analyze_region(img, region) if region is not None
-                   else pipe.analyze_image(img, **extra))
+            if skus.strip():
+                # Qidiruv doirasi: javonda bor deb tanlangan mahsulotlar. Katalogdan o'chirilgan SKU'lar
+                # e'tiborga olinmaydi; birortasi ham qolmasa — xato (jimgina butun katalogga o'tmaymiz).
+                try:
+                    wanted = json.loads(skus)
+                    if (not isinstance(wanted, list) or len(wanted) > 5000
+                            or not all(isinstance(item, str) and len(item) <= 200 for item in wanted)):
+                        raise ValueError
+                except ValueError:
+                    raise HTTPException(400, "Mahsulotlar ro'yxati noto'g'ri")
+                catalog_skus = set(pipe.catalog.sku_info())
+                scope = sorted(set(wanted) & catalog_skus)
+                if not scope:
+                    raise HTTPException(400, "Tanlangan mahsulotlar katalogda topilmadi")
+                if len(scope) == len(catalog_skus):
+                    scope = None                     # hammasi tanlangan — cheklov yo'q
+            if scope is not None:
+                extra["skus"] = scope
+            res = (pipe.analyze_region(img, region, **({"skus": scope} if scope is not None else {}))
+                   if region is not None else pipe.analyze_image(img, **extra))
             summary = summarize(res, color_map(res))
         archive_analysis(upload, img, res)
         data = {"summary": summary, **geometry(res, getattr(pipe, "params", None)),
                 "size": [int(img.shape[1]), int(img.shape[0])]}
+        if scope is not None:
+            data["scope"] = len(scope)
         if workspaces is not None:
             with io.BytesIO() as buf:
                 Image.fromarray(img).save(buf, "JPEG", quality=90)

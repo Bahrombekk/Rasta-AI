@@ -74,6 +74,10 @@ def test_organization_boundaries_and_shelf_review(tmp_path, monkeypatch, workspa
         member_id = response.json()["id"]
         assert login(operator, "field-user").json()["user"]["role"] == "operator"
         assert operator.get("/api/products").status_code == 403
+        assert operator.get("/api/analyze/products").status_code == 200       # tahlil doirasini tanlash uchun
+        # har korxona faqat o'z katalogini ko'radi
+        assert [p["brand"] for p in admin.get("/api/analyze/products").json()["products"]] == ["A"]
+        assert [p["brand"] for p in other.get("/api/analyze/products").json()["products"]] == ["B"]
         assert operator.post("/api/products", headers=HEADERS, data={"name": "Test"}, files=packshot).status_code == 403
         assert other.patch(f"/api/members/{member_id}", headers=HEADERS, json={"active": False}).status_code == 404
         assert operator.post("/api/stores", headers=HEADERS, json={"name": "Blocked"}).status_code == 403
