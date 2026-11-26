@@ -251,6 +251,7 @@ class RemoteLabelReader:
         self.session.headers["X-Rasta-AI-Token"] = token or os.environ.get("RASTA_AI_TOKEN", "")
         self._warned = False
         self.failed = False                      # oxirgi o'qishda xizmat javob bermadimi
+        self.outdated = False                    # xizmat eski versiyada (harf o'lchamini qaytarmaydi)
 
     def ready(self) -> bool:
         try:
@@ -281,6 +282,9 @@ class RemoteLabelReader:
                 results.extend(part)
                 self._warned = False
                 self.failed = False
+                rows = [row for texts in part for row in texts]
+                if rows:                                   # eski xizmat 4 ustun qaytaradi, yangisi 5 ta
+                    self.outdated = any(len(row) < 5 for row in rows)
             except Exception as error:               # tarmoq, vaqt tugashi, noto'g'ri javob
                 self.failed = True
                 if not self._warned:

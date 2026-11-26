@@ -362,6 +362,31 @@ def test_verify_reads_missing_sample_words_on_demand_but_only_a_few_products_at_
     assert boxes[1].match.is_known and boxes[3].match.is_known
 
 
+def test_reader_notices_an_outdated_service_that_returns_no_letter_size(monkeypatch):
+    reader = ocr.RemoteLabelReader("http://127.0.0.1:9", token="t")
+    class Reply:
+        def __init__(self, results):
+            self.results = results
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"results": self.results}
+
+    answers =[[[["ays", 0.99, 0.1, 0.5]]], [[["ays", 0.99, 0.1, 0.5, 0.12]]], [[]]]
+    calls = iter(answers)
+    monkeypatch.setattr(reader.session, "post", lambda url, files, timeout: Reply(next(calls)))
+    crop = [np.zeros((20, 20, 3), np.uint8)]
+    reader.read(crop)
+    assert reader.outdated is True                         # 4 ustun — eski xizmat
+    reader.read(crop)
+    assert reader.outdated is False                        # 5 ustun — yangi xizmat
+    reader.outdated = True
+    reader.read(crop)
+    assert reader.outdated is True                         # matn topilmasa — holat o'zgarmaydi
+
+
 def test_a_silent_reader_is_remembered_and_sample_words_distinguish_failure_from_no_text():
     reader = ocr.RemoteLabelReader("http://127.0.0.1:9", token="t")
     assert reader.failed is False

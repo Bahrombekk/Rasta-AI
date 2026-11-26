@@ -456,6 +456,7 @@ export default function mountPage() {
     const notes = [];
     if (canTeach) notes.push(["poly", "Mahsulotni rasmda bosib tanlang va katalogga qo‘shing."]);
     if (d.label_check === "skipped") notes.push(["alert", "Yozuv o‘qish xizmati javob bermadi — qadoqdagi yozuv bo‘yicha tekshiruv bu tahlilda o‘tkazilmadi. Katalogga o‘xshash, lekin boshqa mahsulotlar tanilgan bo‘lishi mumkin.", "warn"]);
+    if (d.label_check === "outdated") notes.push(["alert", "Yozuv o‘qish xizmati eski versiyada — qadoqdagi yozuv bo‘yicha tekshiruv ishlamayapti. Serverda “docker compose --profile ocr up -d --build” ni bajaring.", "warn"]);
     if (d.scope) notes.push(["info", `Qidiruv faqat tanlangan ${d.scope} ta mahsulot orasidan o‘tkazildi — katalogdagi boshqa mahsulotlar bu tahlilda tanilmaydi.`]);
     if (s.num_variant > 0) notes.push(["info", `${s.num_variant} ta mahsulot katalogdagiga o‘xshaydi, lekin rangi farq qiladi (sariq uzuq ramka) — boshqa ta’m bo‘lishi mumkin. Ustiga bosib ko‘ring.`]);
     if (s.num_unknown > 0) notes.push(["info", `${s.num_unknown} ta mahsulotning SKU’si aniqlanmadi.`]);

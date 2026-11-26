@@ -1037,6 +1037,8 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
             data["scope"] = len(scope)
         if res.timings_ms.get("ocr_failed"):
             data["label_check"] = "skipped"          # yozuv xizmati javob bermadi: tekshiruv o'tkazilmadi
+        elif res.timings_ms.get("ocr_outdated"):
+            data["label_check"] = "outdated"         # xizmat eski: harf o'lchamini qaytarmaydi, tekshiruv ishlamaydi
         if workspaces is not None:
             with io.BytesIO() as buf:
                 Image.fromarray(img).save(buf, "JPEG", quality=90)

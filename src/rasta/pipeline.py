@@ -294,6 +294,7 @@ class RastaPipeline:
             t["ocr_fixed"] = fixed
             t["ocr_rejected"] = rejected
             t["ocr_failed"] = 1.0 if getattr(self.label_reader, "failed", False) else 0.0
+            t["ocr_outdated"] = 1.0 if getattr(self.label_reader, "outdated", False) else 0.0
 
         # 6. Noma'lumlarni klasterlash
         clusters: dict = {}
