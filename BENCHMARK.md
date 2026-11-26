@@ -669,3 +669,36 @@ sahifada doim ko'rinib turadi.
 Tekshiruv: muzlatgich rasmida faqat "Ays Tea" (3 mahsulot) belgilandi — 24 qutidan faqat Ays
 mahsulotlari tanildi (29%), Micco va Наш сад qutilari "noma'lum"ga o'tdi; hammasi qayta belgilanganda
 oddiy natija qaytdi.
+
+**Qoida kuchaytirildi (2026-11-26, kechqurun).** Foydalanuvchi muzlatgich skrinshotini yubordi: tepa
+qatordagi «Наш сад» shishalari "Ays Tea Shaftoli" deb tanilgan, tekshiruv ularni rad etmagan.
+Sabab: OCR bukilgan shishadagi «Наш сад» ni «Hau» + «cag» + «new» deb 3 harfli parchalarga bo'lib
+o'qiydi, qoida esa kamida 4 harfli bitta begona so'z talab qilardi. Muzlatgichda («Наш сад» qutisi
+→ "Ays" mahsulotiga qarshi 27 juftlik; to'g'ri javobli 33 juftlikda nohaq rad kerak emas):
+
+| Begona yozuv mezoni | crop 700–900 px | crop 1400–1800 px | crop 1500–2600 px | to'g'ri qutini nohaq rad |
+|---|---|---|---|---|
+| bitta so'z ≥4 harf, ishonch ≥0.95 (oldingi) | 0/27 | 3/27 | 3/27 | 0/33 |
+| + yirik parchalarning jami ≥5 harf, ishonch ≥0.95 | 3/27 | 12/27 | 9/27 | 0/33 |
+| + ishonch ≥0.90 (**joriy**) | 6/27 | **21/27** | 12/27 | 0/33 |
+
+Shuning uchun: ishonch chegarasi 0.90, jami 5 harf (`ocr.verify_conf`, `ocr.verify_letters`),
+tekshiruv uchun crop 1400–1800 px (kichik crop kam o'qiydi, juda katta esa 2 baravar sekin va
+ham kam o'qiydi). Boshqa brend mahsulotiga qarshi umuman: 160/215 rad. Ball bo'yicha saralash
+ham kengaytirildi (`ocr.verify_margin` 0.10 → 0.25): oldin muzlatgichda bali yuqori (0.86–0.97)
+noto'g'ri moslik tekshirilmasdi.
+
+Namuna so'zlari endi faqat yirik yozuvdan olinadi (harf o'lchami ≥5%): «CERTIFIED», tarkib va manzil
+ko'p qadoqda bor va mahsulotni ajratmaydi — oldin ular "o'z so'zi" bo'lib tekshiruvni
+sustlashtirardi.
+
+Rad etilmagan va ataylab qo'shilmagan: bir brendning boshqa ta'mi («Ays Shaftoli» o'rniga «Ays
+O'rmon mevalari»). Brend so'zi ikkalasida bir xil, ta'm so'zi esa tez-tez o'qilmaydi. "Nomdagi ta'm
+so'zi qutida o'qilmasa — brend darajasiga tushirish" qoidasi o'lchandi: 78 ta shu brendning boshqa
+mahsuloti qutisidan 24 tasini ushlaydi, lekin to'g'ri qutilarning 4/34 (12%) ini ham SKU'dan
+brendga tushiradi. Foyda xarajatdan sezilarli ustun emas — qo'shilmadi.
+
+Natija tekshiruvga ko'ra qutini bosganda ko'rinadi: "Yozuv tekshirildi: qadoqda «ays» o'qildi — mos"
+yoki "yozuv bo'yicha tekshirildi, lekin aniq matn o'qilmadi". Hech narsa yozilmagan quti tekshirilmagan
+(ball yuqori yoki namuna yozuvi yo'q).
+

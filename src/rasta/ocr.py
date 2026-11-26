@@ -168,13 +168,14 @@ def _words(text: str) -> list[str]:
     return [w.strip("'") for w in re.findall(r"[a-zа-яё']+", str(text).lower().translate(_APOS))]
 
 
-def label_words(readings, *, min_conf: float = 0.8, limit: int = 60) -> list[str]:
+def label_words(readings, *, min_conf: float = 0.8, min_size: float = 0.05, limit: int = 60) -> list[str]:
     """Namuna rasmlarida o'qilgan so'zlar — mahsulotning "o'z yozuvi" (katalogda saqlanadi).
-    readings: har rasm uchun [(matn, ishonch, ...)]."""
+    readings: har rasm uchun [(matn, ishonch, x1, x2, harf o'lchami)]. Faqat yirik yozuv olinadi:
+    mayda bosma («CERTIFIED», tarkib, manzil) ko'p qadoqda bor va mahsulotni ajratmaydi."""
     out: list[str] = []
     for texts in readings or []:
         for t in texts or []:
-            if float(t[1]) < min_conf:
+            if float(t[1]) < min_conf or (len(t) > 4 and float(t[4]) < min_size):
                 continue
             for w in _words(t[0]):
                 if len(w) >= 3 and w not in _STOP and w not in out:
@@ -193,7 +194,7 @@ def _near(word: str, token: str, ratio: float = 0.7) -> bool:
 
 
 def judge(texts, own: list[str], brand: Optional[str] = None, *, min_conf: float = 0.5,
-          strong: float = 0.95, big: float = 0.05) -> tuple[str, str]:
+          strong: float = 0.9, big: float = 0.05, letters: int = 5) -> tuple[str, str]:
     """Qutidagi yozuv mahsulotning o'z so'zlariga mos keladimi.
 
     texts: [(matn, ishonch, x1, x2, harf o'lchami)]; own: namunadagi so'zlar + nom + brend.
@@ -201,8 +202,11 @@ def judge(texts, own: list[str], brand: Optional[str] = None, *, min_conf: float
        ("brand", so'z)       faqat brend so'zi o'qildi, yonida yirik begona so'z bor
        ("contradict", so'z)  o'z so'zi yo'q, yirik va aniq begona so'z bor
        ("silent", "")        aniq narsa o'qilmadi — qaror o'zgarmaydi
-    Begona so'z: ishonchi `strong` dan, harfi quti kichik tomonining `big` ulushidan kam emas
-    (brend nomi yirik yoziladi, tarkib va belgilar mayda), kamida 4 harf.
+    Begona yozuv: ishonchi `strong` dan, harfi quti kichik tomonining `big` ulushidan kam emas
+    (brend nomi yirik yoziladi, tarkib va belgilar mayda) va mahsulotning o'z so'zlariga
+    o'xshamaydigan matn. Bitta 4+ harfli so'z yoki bir necha yirik parchaning jami `letters`
+    harfi yetarli: OCR bukilgan shishadagi «Наш сад» ni «Hau» + «cag» deb ikki qisqa parcha
+    qilib o'qiydi.
     """
     tokens = [str(t[0]) for t in texts if float(t[1]) >= min_conf]
     if not tokens or not own:
@@ -212,17 +216,18 @@ def judge(texts, own: list[str], brand: Optional[str] = None, *, min_conf: float
     alien = []
     for t in texts:
         size = float(t[4]) if len(t) > 4 else 0.0
-        letters = re.sub(r"[^a-zа-яё]", "", str(t[0]).lower())
-        if float(t[1]) >= strong and size >= big and len(letters) >= 4 and not any(
+        count = len(re.sub(r"[^a-zа-яё]", "", str(t[0]).lower()))
+        if float(t[1]) >= strong and size >= big and count >= 2 and not any(
                 _near(v, str(t[0])) for w in own for v in spoken(w)):
-            alien.append((size, str(t[0])))
+            alien.append((size, str(t[0]), count))
+    foreign = any(c >= 4 for _, _, c in alien) or sum(c for _, _, c in alien) >= letters
     word = max(alien)[1] if alien else ""
     if hit:
         marks = set(_words(brand or ""))
-        if marks and alien and all(w in marks for w in hit):
+        if marks and foreign and all(w in marks for w in hit):
             return "brand", word
         return "support", hit[0]
-    return ("contradict", word) if alien else ("silent", "")
+    return ("contradict", word) if foreign else ("silent", "")
 
 
 # ---- Xizmat mijozi -----------------------------------------------------------
@@ -365,8 +370,9 @@ def refine_with_text(detections, image: np.ndarray, reader, catalog, *, hires=No
 
 
 def verify_with_text(detections, image: np.ndarray, reader, catalog, *, hires=None,
-                     max_boxes: int = 12, min_conf: float = 0.5, strong: float = 0.95,
-                     big: float = 0.05, risky=None, words_for=None, max_fill: int = 3) -> int:
+                     max_boxes: int = 12, min_conf: float = 0.5, strong: float = 0.9,
+                     big: float = 0.05, letters: int = 5, risky=None, words_for=None,
+                     max_fill: int = 3) -> int:
     """Tanilgan qutilarni yorliq yozuvi bilan tekshirish: qadoqda aniq boshqa so'z turgan
     bo'lsa, moslik bekor qilinadi (yoki faqat brend darajasida qoldiriladi).
 
@@ -406,18 +412,22 @@ def verify_with_text(detections, image: np.ndarray, reader, catalog, *, hires=No
     big_image = hires() if callable(hires) else hires
     if big_image is not None and big_image.shape[1] > image.shape[1]:
         source, scale = big_image, big_image.shape[1] / image.shape[1]
-    # Brend va mahsulot nomi yirik yoziladi: kichikroq rasm yetarli va tezroq o'qiladi
-    results = reader.read([label_crop(source, d.box, scale, min_long=700, max_long=900) for d, _, _ in jobs])
+    # O'rta o'lcham (1400-1800 px): kichik crop'da (700-900) bukilgan shishadagi yozuv o'qilmay qoladi,
+    # 1500-2600 px da esa 2 baravar sekin va kam ham o'qiydi (BENCHMARK.md 11g)
+    results = reader.read([label_crop(source, d.box, scale, min_long=1400, max_long=1800) for d, _, _ in jobs])
     if results is None:
         return 0
     changed = 0
     for (d, own, brand), texts in zip(jobs, results):
-        verdict, word = judge(texts, own, brand, min_conf=min_conf, strong=strong, big=big)
+        verdict, word = judge(texts, own, brand, min_conf=min_conf, strong=strong, big=big, letters=letters)
+        if verdict == "support" and not word:
+            word = own[0] if own else ""
         if verdict == "contradict":
             d.match = replace(d.match, is_known=False, level=None, mismatch=word)
         elif verdict == "brand":
             d.match = replace(d.match, is_known=False, level="brand", brand=brand, mismatch=word)
         else:
+            d.match = replace(d.match, checked=f"support:{word}" if verdict == "support" else "silent")
             continue
         changed += 1
     return changed

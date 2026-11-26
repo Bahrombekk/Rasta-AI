@@ -287,7 +287,8 @@ class RastaPipeline:
                 rejected = verify_with_text(
                     detections, image, self.label_reader, self.catalog, hires=original,
                     max_boxes=int(cfg.get("ocr.verify_boxes", 12)), min_conf=min_conf,
-                    strong=float(cfg.get("ocr.verify_conf", 0.95)), big=float(cfg.get("ocr.verify_size", 0.05)),
+                    strong=float(cfg.get("ocr.verify_conf", 0.9)), big=float(cfg.get("ocr.verify_size", 0.05)),
+                    letters=int(cfg.get("ocr.verify_letters", 5)),
                     risky=risky, words_for=words_for, max_fill=int(cfg.get("ocr.verify_fill", 3)))
             t["ocr"] = (time.perf_counter() - t_ocr) * 1000
             t["ocr_fixed"] = fixed

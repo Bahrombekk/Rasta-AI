@@ -134,10 +134,11 @@ ocr:
   # bekor qilinadi («Florida» qadog'i «Cookies» deb tanilmaydi). Namuna yozuvi mahsulot
   # qo'shilganda/qayta o'rganilganda o'qiladi. O'lchovlar: BENCHMARK.md 11g.
   verify: true
-  verify_margin: 0.10   # faqat bali chegaradan (τ) shuncha yuqori bo'lgan qutilar o'qiladi
+  verify_margin: 0.25   # faqat bali chegaradan (τ) shuncha yuqori bo'lgan qutilar o'qiladi (0.25 — deyarli hammasi)
   verify_boxes: 12      # ...ulardan eng past balli shunchasi
   verify_fill: 3        # namuna yozuvi yo'q mahsulotlardan bir tahlilda eng ko'pi bilan shuncha tasi o'qib saqlanadi
-  verify_conf: 0.95     # begona so'z shu ishonchdan past bo'lsa hisobga olinmaydi
+  verify_conf: 0.9      # begona yozuv shu ishonchdan past bo'lsa hisobga olinmaydi
+  verify_letters: 5     # ...bitta 4+ harfli so'z yoki yirik parchalarning jami shuncha harfi
   verify_size: 0.05     # ...va harfi quti kichik tomonining shu ulushidan mayda bo'lsa ham
   budget: 60            # bitta o'qish chaqiruviga ajratilgan vaqt, soniya
   timeout: 60           # sekund; xizmat javob bermasa tahlil yozuvsiz yakunlanadi

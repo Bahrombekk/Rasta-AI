@@ -214,8 +214,10 @@ def test_label_words_keep_confident_words_once():
     readings = [[["ZARQAND", 1.0, 0, 1, 0.04], ["COOKiES", 0.88, 0, 1, 0.15], ["100% QUALITY", 0.99, 0, 1, 0.03]],
                 [["Zarqand", 0.99, 0, 1, 0.04], ["new", 0.99, 0, 1, 0.1], ["xyzw", 0.4, 0, 1, 0.2], ["ab", 1.0, 0, 1, 0.2]],
                 []]
-    assert ocr.label_words(readings) == ["zarqand", "cookies", "quality"]
-    assert ocr.label_words(readings, limit=2) == ["zarqand", "cookies"]
+    assert ocr.label_words(readings) == ["cookies"]                      # mayda bosma («100% QUALITY») olinmaydi
+    assert ocr.label_words(readings, min_size=0.0) == ["zarqand", "cookies", "quality"]
+    assert ocr.label_words(readings, min_size=0.0, limit=2) == ["zarqand", "cookies"]
+    assert ocr.label_words([[["Zarqand", 0.99]]]) == ["zarqand"]           # eski formatda harf o'lchami yo'q
     assert ocr.label_words(None) == []
 
 
@@ -228,10 +230,19 @@ def test_judge_supports_a_box_that_shows_the_products_own_words():
 def test_judge_rejects_only_on_large_confident_foreign_text():
     assert ocr.judge([big("Florida"), big("chaca nut", 0.69, 0.08)], COOKIES, "ZARQAND") == ("contradict", "Florida")
     assert ocr.judge([big("CERTIFIED", 0.99, 0.02)], COOKIES, "ZARQAND") == ("silent", "")     # mayda yozuv
-    assert ocr.judge([big("Florida", 0.9)], COOKIES, "ZARQAND") == ("silent", "")              # ishonch past
+    assert ocr.judge([big("Florida", 0.85)], COOKIES, "ZARQAND") == ("silent", "")             # ishonch past
     assert ocr.judge([big("COCKICS", 0.99, 0.29)], COOKIES, "ZARQAND") == ("silent", "")       # o'z so'ziga yaqin
     assert ocr.judge([big("OK!")], COOKIES, "ZARQAND") == ("silent", "")                       # juda qisqa
     assert ocr.judge([], COOKIES) == ("silent", "") and ocr.judge([big("Florida")], []) == ("silent", "")
+
+
+def test_judge_adds_up_short_large_fragments_of_a_curved_label():
+    # «Наш сад» bukilgan shishada: «Hau» + «cag» + «new» — har biri qisqa, jami begona yozuv
+    fragments = [big("Hau", 0.97, 0.32), big("cag", 0.9, 0.4), big("new", 0.99, 0.25)]
+    assert ocr.judge(fragments, COOKIES, "ZARQAND")[0] == "contradict"
+    assert ocr.judge(fragments[:1], COOKIES, "ZARQAND") == ("silent", "")       # bitta qisqa parcha — yetmaydi
+    assert ocr.judge([big("au", 0.99, 0.3), big("ag", 0.99, 0.4)], COOKIES, "ZARQAND") == ("silent", "")   # 4 harf
+    assert ocr.judge(fragments, COOKIES, "ZARQAND", letters=12) == ("silent", "")
 
 
 def test_judge_keeps_the_brand_when_the_box_names_another_product_of_it():
@@ -269,7 +280,8 @@ def test_verify_rejects_boxes_whose_label_names_something_else():
     assert florida.to_dict()["label_mismatch"] == "Florida"
     assert (mango.match.is_known, mango.match.level, mango.match.brand, mango.match.mismatch) == (False, "brand", "ZARQAND", "MANGO")
     assert real.match.is_known and strong.match.is_known and plain.match.is_known and by_text.match.is_known
-    assert max(reader.crops[0].shape[:2]) <= 900                   # tekshiruv uchun kichik rasm yetarli
+    assert real.match.checked == "support:zarqand" and strong.match.checked is None   # tekshirilgani ko'rinadi
+    assert 600 <= max(reader.crops[0].shape[:2]) <= 1800           # kichik quti 3 baravargacha, hech qachon 1800 dan katta emas
     # faqat chegaraga yaqin balli qutilar o'qiladi
     weak, sure = known_box(0.68, 0), known_box(0.9, 150)
     reader = Reader([[big("Florida")]])

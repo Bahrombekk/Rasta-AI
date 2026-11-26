@@ -298,7 +298,9 @@ def test_explanation_names_the_label_text_that_settled_the_product():
                                                            level="sku", text="shaftoli"))
     plain = Detection(box=Box(0, 0, 10, 10), match=Match("a", "Ays Shaftoli", 0.86, 0.2, True, cands, level="sku"))
     assert web.explain(by_text, params)["r"] == "text" and web.explain(by_text, params)["w"] == "shaftoli"
-    assert web.explain(plain, params)["r"] == "ok"
+    assert web.explain(plain, params)["r"] == "ok" and "lc" not in web.explain(plain, params)
+    plain.match.checked = "support:ays"
+    assert web.explain(plain, params)["lc"] == "support:ays"
 
 
 def test_explanation_and_geometry_for_label_mismatch_and_unknown_groups():

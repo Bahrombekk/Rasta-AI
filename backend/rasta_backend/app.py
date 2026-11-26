@@ -399,6 +399,8 @@ def explain(d, params) -> dict:
         info["r"], info["w"] = "text", m.text
     elif m.is_known:
         info["r"] = "context" if d.context_fixed else "ok"
+        if m.checked:                       # yorliq yozuvi bo'yicha tekshirilgan: support:<so'z> | silent
+            info["lc"] = m.checked
     elif m.mismatch is not None:
         # ko'rinishi o'xshaydi, lekin qadoqdagi yozuv boshqa: label (butunlay boshqa mahsulot)
         # yoki label_brand (brend to'g'ri, mahsulot boshqa); w — qadoqda o'qilgan so'z

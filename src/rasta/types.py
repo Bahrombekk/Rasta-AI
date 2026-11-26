@@ -58,6 +58,9 @@ class Match:
     text: Optional[str] = None
     # Yorliqdagi yozuv moslikni rad etgan bo'lsa — qadoqda o'qilgan boshqa so'z ("Florida")
     mismatch: Optional[str] = None
+    # Yozuv bo'yicha tekshiruv natijasi: "support:<so'z>" (mahsulotning o'z so'zi o'qildi) yoki
+    # "silent" (aniq narsa o'qilmadi). None — tekshirilmadi (ball yuqori yoki namuna yozuvi yo'q).
+    checked: Optional[str] = None
 
 
 @dataclass
