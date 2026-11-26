@@ -464,11 +464,11 @@ CPU, tahlilga +10 ms).
   kichik, asosan foto-namunali kataloglarda foyda yo'q, notanishni rad etish esa yomonlashishi
   mumkin. Sharti bajarilganda qayta ko'riladi (faqat `src: crop` namunalardan o'rganish bilan).
 
-### 11f. Qadoqdagi yozuvni o'qish — OCR (qo'shilmadi) — 2026-11-26
+### 11f. Qadoqdagi yozuvni o'qish — OCR (ixtiyoriy xizmat) — 2026-11-26
 Savol: tizim ta'mni ajrata olmagan qutilarda yorliqdagi yozuv yordam beradimi. Ma'lumot: muzlatgichning
 2 kadri, ko'z bilan nomlangan 34 quti (10 mahsulot: Ays Tea ×3, Micco ×4, Наш сад ×3 — bir xil
-shishalar ikki kadrda, ya'ni ~18 ta jismoniy shisha). PaddleOCR 3.7 (PP-OCRv5, `lang="ru"` —
-kirill + lotin), CPU. Matn katalog nomidagi ta'm so'zi bilan solishtirildi (taxminiy moslik, kesilgan
+shishalar ikki kadrda, ya'ni ~18 ta jismoniy shisha). PaddleOCR 3.7, CPU: matn
+detektori PP-OCRv5 (mobile yoki server), tanish modeli PP-OCRv6_medium_rec. Matn katalog nomidagi ta'm so'zi bilan solishtirildi (taxminiy moslik, kesilgan
 so'zlar — "shaft…", "…ranate" — ham qabul qilindi; moslash qoidalari natijani ko'rib yozilgan, ya'ni
 OCR foydasiga optimistik).
 
@@ -479,6 +479,7 @@ OCR foydasiga optimistik).
 | mobile det | prod o'lchami (uzun tomon 2000) | 7/34 | 0 | 2/15 | 0.44 s |
 | mobile det | prod o'lchami ×3 kattalashtirilgan | 11/34 (+tarjima 12) | 0 | 6/15 | 1.2 s |
 | server det + tarjima | asl | 21/34 | 0 | 10/15 | 20–40 s |
+| mobile det + kirill modeli (eslav_PP-OCRv5_mobile_rec) + tarjima | asl | 18/34 | 0 | 10/15 | 3.3 s |
 
 Mahsulot bo'yicha (mobile, asl o'lcham): Ays shaftoli 8/8 (4 tasida so'z kesilgan), Micco
 orange-mango 2/2, pomegranate 2/2 ("RANATE"), pear 3/4, Наш сад малина 2/4 (mayda lotincha
@@ -506,6 +507,35 @@ Joriy tizim bilan birga (kadrlararo; OCR faqat SKU darajasida tanilmagan qutilar
   yangi bog'liqlik (paddlepaddle + paddlex + modellar); yorliq tili katalog nomidan farq qilsa
   (o'rmon mevalari / лесные ягоды / nok) sinonimlar kerak.
 - Xulosa: yozuv o'qiladigan joyda (old tomoni ko'ringan yorliq) vektor ham odatda to'g'ri ishlaydi;
-  xato bo'ladigan joyda (burilgan, orqa tomon, yaltirash) yozuv ham ko'rinmaydi. Qo'shilmadi.
-  O'lchanmagan: GPU'da vaqt; VLM bilan o'qish (GPU band edi); yassi old tomonli qadoqlar (karton
-  quti, tetrapak) — bu to'plamda faqat dumaloq shishalar.
+  xato bo'ladigan joyda (burilgan, orqa tomon, yaltirash) yozuv ham ko'rinmaydi — bu to'plamda foyda
+  kichik. O'lchanmagan: GPU'da vaqt; VLM bilan o'qish (GPU band edi); yassi old tomonli qadoqlar
+  (karton quti, tetrapak) — bu to'plamda faqat dumaloq shishalar.
+
+**Tizimga qo'shilgan shakli** (foydalanuvchi qarori; standart holatda o'chiq): alohida `ocr`
+konteyneri (`docker compose --profile ocr`, `RASTA_OCR_URL`), `rasta/ocr.py`. Faqat "brend
+darajasida" va "variant" qutilar o'qiladi; nomzodlar — shu brendning ko'rinish bo'yicha ham yaqin
+(top-5) mahsulotlari; yozuv bittasiga bir ma'noli mos kelsa, quti SKU deb sanaladi. SKU darajasidagi
+qaror va noma'lum quti o'zgarmaydi; ta'm mos, hajm zid bo'lsa — rad. Quti chetidagi matn tashlanadi.
+Backend yozuv uchun asl rasmni (6000 px gacha) ochadi, zona tahlilida — ish rasmi (kattalashtirib).
+
+To'liq zanjir (pipeline CPU'da + jonli OCR xizmati, kadrlararo):
+
+| Katalog | OCR'siz | OCR, faqat 2000 px rasm | OCR, asl rasm | OCR vaqti |
+|---|---|---|---|---|
+| har mahsulotdan 1 quti, 6864 → 6863 | 13/16, xato 1 | 14/16, xato 1 | 14/16, xato 1 | 2.3 / 3.1 s |
+| har mahsulotdan 1 quti, 6863 → 6864 | 14/18, xato 2 | 15/18, xato 2 | 15/18, xato 2 | 2.1 / 3.1 s |
+| kadrdagi hamma qutilar (ikki yo'nalish) | 16/16; 16/18 | o'zgarmadi | o'zgarmadi | 0 (noaniq quti yo'q) |
+
+Har kadrda atigi 1 ta quti "brend darajasida" qolgan edi — OCR faqat shunda ishladi va uni to'g'ri
+aniqladi. Noaniq quti bo'lmasa xizmat chaqirilmaydi.
+
+Veb-ilova orqali (lokal, CPU): 8 MB li asl rasm yuklandi — 24 quti, 1 tasi yozuv bo'yicha aniqlandi,
+izohda "Yorliqdagi yozuv bo'yicha aniqlandi … (o'qilgan: «shaftoli»)"; butun tahlil 15 s.
+
+Konteyner (`ocr/Dockerfile`, 2.5 GB): internetsiz (`--network none`) ishga tushadi, 3 ta haqiqiy
+qutini Windows'dagi o'lchov bilan aynan bir xil o'qidi, 3 quti 4.5–5 s. Ogohlantirish: sinov
+kompyuteridagi Docker'da (WSL2) Python jarayonlari ishga tushishda tasodifiy yiqiladi — toza
+`python:3.10-slim` da oddiy standart kutubxona kodi 25 tadan 6 tasida, OCR image'i (3.11) 20 tadan
+2 tasida (`python:3.11-slim` va `3.12-slim` toza holda 0/25). Disk, xotira va tizim jurnalida xato
+yo'q; sababi aniqlanmadi. Yiqilgan konteynerni `restart: unless-stopped` qayta ko'taradi, backend esa
+javobsiz qolgan so'rovda tahlilni yozuvsiz yakunlaydi. Serverda bu tekshirilmagan.

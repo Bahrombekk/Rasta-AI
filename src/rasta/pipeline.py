@@ -6,6 +6,7 @@ Qadamlar (hisobotning 6.1-bo'limi + kuchaytirishlar):
   3. Embedding (DINOv2) + rang va shakl deskriptorlari
   4. Gibrid vektor qidiruv (SKU tanish, open-set, rang veto'si)
   5. Javon konteksti (qo'shnilar bo'yicha noma'lumlarni tuzatish)
+     + yorliqdagi yozuv (OCR xizmati ulangan bo'lsa): brend darajasidagi qutini SKU'ga ko'tarish
   6. Noma'lumlarni klasterlash (HDBSCAN)
   7. OOS (bo'sh joy) + rasm bo'yicha tekshiruv
   8. KPI
@@ -26,12 +27,15 @@ from .embedder import build_embedder, crop_boxes
 from .features import aspect_ratio, color_descriptors, to_rgb_array
 from .imageio import load_image
 from .kpi import compute_kpi
+from .ocr import build_label_reader, refine_with_text
 from .oos import detect_gaps, verify_gaps
 from .shelf import assign_rows, mark_background_rows, mark_cut_rows, renumber_rows
 from .types import AnalysisResult, Detection
 
 
 class RastaPipeline:
+    label_reader = None                 # OCR xizmati mijozi (rasta.ocr); None — ulanmagan
+
     def __init__(self, cfg: Optional[Config] = None, *, inference=None):
         self.cfg = cfg or Config.load()
         if inference is None:
@@ -44,6 +48,7 @@ class RastaPipeline:
         self.catalog = build_catalog(self.cfg, dim=self.embedder.dim)
         self.params = RecognitionParams.from_cfg(self.cfg)
         self._locator = None            # namuna fotosi lokatori: birinchi murojaatda yuklanadi
+        self.label_reader = build_label_reader(self.cfg)    # OCR xizmati (None — ulanmagan)
 
     # ---- Katalog onboarding ----------------------------------------------
 
@@ -152,9 +157,12 @@ class RastaPipeline:
         detect_image: Optional[np.ndarray] = None,
         roi_mask: Optional[np.ndarray] = None,
         assume_frontal: bool = False,
+        hires=None,
     ) -> AnalysisResult:
         """detect_image — detektor uchun alternativ rasm (masalan poligon tashqarisi
-        yopilgan); roi_mask — faqat shu maska ichidagi mahsulot/bo'shliqlar qoladi."""
+        yopilgan); roi_mask — faqat shu maska ichidagi mahsulot/bo'shliqlar qoladi;
+        hires — shu kadrning asl (kichraytirilmagan) nusxasi yoki uni qaytaradigan funksiya:
+        yorliq yozuvi undan o'qiladi (2000 px li ish rasmida matn ko'pincha juda mayda)."""
         cfg = self.cfg
         h, w = image.shape[:2]
         t: dict[str, float] = {}
@@ -227,6 +235,15 @@ class RastaPipeline:
 
         if cfg.get("recognition.size_veto", True) and detections:
             veto_size_outliers(detections, params=self.params, sim_threshold=self.params.sim_threshold)
+
+        # 5b. Yorliqdagi yozuv: brend aniq, SKU noaniq qutilar (KPI va klasterlashdan oldin)
+        if self.label_reader is not None and detections and cfg.get("ocr.enabled", True):
+            t_ocr = time.perf_counter()
+            fixed = refine_with_text(
+                detections, image, self.label_reader, self.catalog, hires=hires,
+                max_boxes=int(cfg.get("ocr.max_boxes", 12)), min_conf=float(cfg.get("ocr.min_conf", 0.5)))
+            t["ocr"] = (time.perf_counter() - t_ocr) * 1000
+            t["ocr_fixed"] = fixed
 
         # 6. Noma'lumlarni klasterlash
         clusters: dict = {}

@@ -38,6 +38,7 @@ from .field_api import router as field_router
 
 STATIC = ROOT / "frontend" / "dist"
 MAX_SIDE = 2000                    # katta telefon rasmlari shu o'lchamgacha kichraytiriladi
+OCR_MAX_SIDE = 6000                # yorliq yozuvi asl o'lchamga yaqin rasmdan o'qiladi
 MAX_BYTES = 20 * 1024 * 1024
 MAX_PIXELS = 50_000_000            # "dekompressiya bombasi": kichik fayl, ulkan rasm
 # Katalog to'plami (.zip): bir korxonada tayyorlangan katalogni boshqasiga ko'chirish uchun
@@ -176,7 +177,7 @@ def read_upload(f: UploadFile) -> bytes:
     return data
 
 
-def read_image(data: bytes) -> np.ndarray:
+def read_image(data: bytes, max_side: int = MAX_SIDE) -> np.ndarray:
     if len(data) > MAX_BYTES:
         raise HTTPException(413, "Rasm juda katta (20 MB dan ko'p)")
     try:
@@ -189,8 +190,8 @@ def read_image(data: bytes) -> np.ndarray:
         im = ImageOps.exif_transpose(im).convert("RGB")    # telefon rasmi burilishi
     except Exception:
         raise HTTPException(400, "Rasmni o'qib bo'lmadi")
-    if max(im.size) > MAX_SIDE:
-        im.thumbnail((MAX_SIDE, MAX_SIDE), Image.LANCZOS)
+    if max(im.size) > max_side:
+        im.thumbnail((max_side, max_side), Image.LANCZOS)
     return np.array(im)
 
 
@@ -352,7 +353,8 @@ def explain(d, params) -> dict:
     r: ok | context (qo'shnilar bo'yicha) | brand (faqat brend) | empty (katalog bo'sh) |
        low (o'xshashlik chegaradan past) | color (rang mos emas) | other (katalogda yo'q
        boshqa mahsulotga ko'proq o'xshaydi) | ambiguous (ikki SKU orasida) | size (o'lchami
-       shu SKU'ning boshqa donalaridan farq qiladi) | variant (o'xshaydi, lekin rangi farq
+       shu SKU'ning boshqa donalaridan farq qiladi) | text (brend ko'rinishidan, mahsulot
+       yorliqdagi yozuvdan aniqlandi; w — o'qilgan so'z) | variant (o'xshaydi, lekin rangi farq
        qiladi — bir xil dizayndagi boshqa ta'm bo'lishi mumkin) | weak (ball chegaradan
        faqat rang/shakl hisobiga o'tgan, ko'rinishning o'zi mos emas).
     n — eng yaqin mahsulot, sc — o'xshashlik, tau — chegara, m — 2-nomzoddan farq.
@@ -365,7 +367,9 @@ def explain(d, params) -> dict:
     info = {"n": m.name if m.is_known else top.get("name"), "sc": round(float(m.score), 3),
             "tau": round(float(tau), 3), "m": round(float(m.margin), 3)}
     neg = top.get("neg")
-    if m.is_known:
+    if m.is_known and m.text is not None:
+        info["r"], info["w"] = "text", m.text
+    elif m.is_known:
         info["r"] = "context" if d.context_fixed else "ok"
     elif m.level == "variant":
         info["r"], info["c"] = "variant", round(float(top.get("color", 0.0)), 3)
@@ -948,9 +952,12 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
             except (ValueError, TypeError, OverflowError):
                 raise HTTPException(400, "Zona noto'g'ri")
         pipe = get_pipe()
+        # Yorliq yozuvi uchun asl o'lchamdagi nusxa — faqat OCR ulangan va noaniq quti bo'lsa ochiladi
+        extra = ({"hires": lambda: read_image(upload, OCR_MAX_SIDE)}
+                 if getattr(pipe, "label_reader", None) is not None else {})
         with State.lock:
             res = (pipe.analyze_region(img, region) if region is not None
-                   else pipe.analyze_image(img))
+                   else pipe.analyze_image(img, **extra))
             summary = summarize(res, color_map(res))
         archive_analysis(upload, img, res)
         data = {"summary": summary, **geometry(res, getattr(pipe, "params", None)),
@@ -975,7 +982,9 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
         status = {"ok": ready, "loaded": State.pipe is not None and ready,
                   "catalog_stale": bool(stale), "database_ready": database_ready,
                   # "boshqa mahsulotlar" bazasi yuklanganmi (kichik katalogda soxta tanishni to'xtatadi)
-                  "negatives": State.pipe is not None and getattr(State.pipe.catalog, "negatives", None) is not None}
+                  "negatives": State.pipe is not None and getattr(State.pipe.catalog, "negatives", None) is not None,
+                  # yorliq yozuvini o'qish xizmati ulanganmi (RASTA_OCR_URL)
+                  "ocr": State.pipe is not None and getattr(State.pipe, "label_reader", None) is not None}
         return JSONResponse(status, status_code=200 if ready else 503)
 
     return app

@@ -1,0 +1,7 @@
+# OCR xizmati (ocr/Dockerfile). Versiyalar o'lchov o'tkazilgan to'plam bilan bir xil.
+paddlepaddle==3.3.1
+paddleocr==3.7.0
+fastapi>=0.115,<1
+uvicorn>=0.30,<1
+python-multipart>=0.0.9,<1
+pillow>=10,<13

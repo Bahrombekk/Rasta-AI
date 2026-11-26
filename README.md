@@ -101,6 +101,7 @@ Brauzerda **http://127.0.0.1:8090/login** ni oching. Super admin **Korxonalar** 
 - Yangilash: `git pull`, so‘ng `docker compose up -d --build`. `ai/Dockerfile.base` o‘zgargan bo‘lsa (yangi model qo‘shilgan) avval `docker build -f ai/Dockerfile.base -t rasta-ai-base:1 .` ni qayta bajaring — faqat yangi qatlam yuklanadi. Tanish mantig‘i yoki embedding o‘zgarganda korxona admini katalogda **Qayta o‘rganish** ni bosadi.
 - Tahlil qilingan har rasm va detektor qutilari `rasta-archive` volume’iga yoziladi (o‘z detektoringizni o‘qitish uchun: `tools/box_editor.html` → `scripts/export_yolo.py`). O‘chirish: `.env` da `RASTA_ARCHIVE=0`.
 - Tayyor katalogni korxonaga berish: **Katalog** sahifasida **Katalog fayli** katalogni rasmlari bilan bitta `.zip` ga saqlaydi, **Katalog faylini yuklash** uni boshqa korxona katalogiga qo‘shadi (faqat korxona admini; katalogda bor mahsulotlar o‘zgarmaydi, vektorlar joyida qayta hisoblanadi).
+- Yorliq yozuvini o‘qish (ixtiyoriy, CPU): `.env` ga `RASTA_OCR_URL=http://ocr:8013` yozing va `docker compose --profile ocr up -d --build` bilan ishga tushiring (keyingi yangilashlarda ham `--profile ocr` bilan). Tizim brendni topib, ta’m yoki hajmda ikkilangan qutilarda yorliqdagi yozuvni o‘qiydi va katalog nomidagi so‘zlar bilan solishtiradi; ishonchli qarorlar o‘zgarmaydi. Shuning uchun mahsulot nomiga ta’m va hajmni yozing (“Ays Tea Shaftoli 1.25L”) va brendni to‘ldiring. Ulanganini `/api/health` dagi `ocr` ko‘rsatadi; o‘chirish — `RASTA_OCR_URL` ni bo‘sh qoldirish. O‘lchovlar: BENCHMARK.md 11f.
 - Xizmat loglari uchun `docker compose logs -f frontend backend ai` ishlating. Tayyorlik holati `/api/health` da ko‘rinadi.
 - Domen bilan chiqarishda frontendni HTTPS reverse proxy ortiga joylashtiring va `RASTA_SECURE_COOKIES=1` belgilang.
 - Lokal frontend uchun Node.js 22.12+ bilan `npm --prefix frontend ci` va `npm --prefix frontend run dev` ni bajaring. Vite API so‘rovlarini odatda `127.0.0.1:8000` ga uzatadi. FastAPI’ni `python scripts/serve.py --api-only` orqali oching. Bitta portda ishlatish uchun frontendni `npm --prefix frontend run build` bilan yig‘ing va `python scripts/serve.py` ni ishga tushiring.
@@ -230,6 +231,7 @@ frontend/src/pages/    # React sahifalari va umumiy navigatsiya
 frontend/src/controllers/ # murakkab sahifalardagi mavjud amallar va canvas integratsiyasi
 backend/rasta_backend/ # FastAPI, biznes qoidalari va SQL migratsiyalari
 ai/rasta_ai/           # ichki AI inference servisi
+ocr/rasta_ocr/         # ixtiyoriy: yorliq yozuvini o'qiydigan xizmat (PaddleOCR, CPU)
 src/rasta/             # servislar va CLI ishlatadigan javon tahlili kutubxonasi
 scripts/               # CLI, onboarding, baholash va benchmarklar
 tests/                 # unit testlar (og'ir modellarsiz)

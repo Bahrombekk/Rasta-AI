@@ -118,6 +118,19 @@ recognition:
   neg_margin_packshot: 0.12
   neg_exclude: 0.85
 
+# Yorliqdagi yozuvni o'qish (OCR). Alohida xizmat (ocr/) ulangan bo'lsa ishlaydi: manzili
+# RASTA_OCR_URL muhit o'zgaruvchisi yoki quyidagi url. Faqat "brend darajasida" yoki "variant"
+# deb qolgan qutilar o'qiladi; yozuv katalog nomidagi so'zlar bilan solishtiriladi va faqat
+# bitta mahsulotga mos kelsa, quti o'sha mahsulot deb sanaladi. Ishonchli qaror o'zgarmaydi.
+# O'lchov (BENCHMARK.md 11f): muzlatgichda ta'm 34 qutidan 19 tasida o'qildi, har kadrda
+# 1 ta quti aniqlashtirildi; qutiga ~3 s (CPU).
+ocr:
+  enabled: true
+  url: ""
+  max_boxes: 12         # bitta tahlilda eng ko'pi bilan nechta quti o'qiladi (yiriklari birinchi)
+  min_conf: 0.5         # o'qilgan so'zning eng kam ishonchi
+  timeout: 60           # sekund; xizmat javob bermasa tahlil yozuvsiz yakunlanadi
+
 onboarding:
   # Fonli namuna fotosida (stol ustidagi mahsulot) mahsulotni kadrdan ajratib oluvchi
   # matn so'rovli detektor. Faqat katalogga rasm qo'shilganda, birinchi murojaatda yuklanadi.

@@ -54,6 +54,8 @@ class Match:
     # None    — noma'lum
     level: Optional[str] = None
     negative_score: Optional[float] = None
+    # Yorliqdagi yozuv bo'yicha aniqlashtirilgan bo'lsa — asos bo'lgan so'z ("shaftoli", "0.5 L")
+    text: Optional[str] = None
 
 
 @dataclass
@@ -83,6 +85,8 @@ class Detection:
                 d["brand"] = self.match.brand
             if self.match.level:
                 d["level"] = self.match.level
+            if self.match.text is not None:
+                d["label_text"] = self.match.text
             if self.match.candidates:
                 d["top"] = [{"sku_id": c["sku_id"], "score": round(c["score"], 3)}
                             for c in self.match.candidates[:3]]

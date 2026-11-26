@@ -48,6 +48,7 @@ export default function mountPage() {
     const near = why.n ? `eng yaqin mahsulot — ${why.n}, o‘xshashlik ${pct(why.sc)} (chegara ${pct(why.tau)})` : "";
     $("whyText").textContent = ({
       ok: `Tanildi: ${why.n}. O‘xshashlik ${pct(why.sc)}, chegara ${pct(why.tau)}.`,
+      text: `Yorliqdagi yozuv bo‘yicha aniqlandi: ${why.n}${why.w ? ` (o‘qilgan: «${why.w}»)` : ""}. Brend ko‘rinishidan tanilgan, o‘xshashlik ${pct(why.sc)}.`,
       context: `Qo‘shni mahsulotlarga qarab tanildi: ${why.n} (o‘xshashlik ${pct(why.sc)}, chegara ${pct(why.tau)}).`,
       variant: `${why.n} ga o‘xshaydi (o‘xshashlik ${pct(why.sc)}), lekin rangi farq qiladi (rang mosligi ${pct(why.c ?? 0)}). Bu shu mahsulotning boshqa ta’mi yoki turi bo‘lishi mumkin — alohida mahsulot sifatida qo‘shing.`,
       brand: `Faqat brend aniqlandi: ikki o‘xshash mahsulot orasida farq juda kichik (${pct(why.m)}).`,

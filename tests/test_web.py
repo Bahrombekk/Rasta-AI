@@ -247,6 +247,34 @@ def test_analysis_keeps_uncertain_gaps_out_of_oos_total(client, monkeypatch):
     assert data["summary"]["oos_status"] == "limited_scene"
 
 
+def test_analysis_offers_the_full_size_image_when_a_label_reader_is_connected(client, monkeypatch):
+    pipe = web.State.pipe
+    result = pipe._result(np.zeros((1500, 2000, 3), dtype=np.uint8))
+    seen = {}
+
+    def analyze(img, hires=None):
+        seen["work"], seen["full"] = img.shape, hires().shape
+        return result
+
+    monkeypatch.setattr(pipe, "analyze_image", analyze)
+    monkeypatch.setattr(pipe, "label_reader", object(), raising=False)
+    r = client.post("/api/analyze", files={"image": ("s.jpg", jpg(4000, 3000), "image/jpeg")})
+    assert r.status_code == 200 and r.json()["size"] == [2000, 1500]
+    assert seen == {"work": (1500, 2000, 3), "full": (3000, 4000, 3)}
+    assert client.get("/api/health").json()["ocr"] is True
+
+
+def test_explanation_names_the_label_text_that_settled_the_product():
+    from rasta.catalog import RecognitionParams
+    params = RecognitionParams()
+    cands = [{"sku_id": "a", "name": "Ays Shaftoli", "score": 0.86, "src": "crop"}]
+    by_text = Detection(box=Box(0, 0, 10, 10), match=Match("a", "Ays Shaftoli", 0.86, 0.01, True, cands,
+                                                           level="sku", text="shaftoli"))
+    plain = Detection(box=Box(0, 0, 10, 10), match=Match("a", "Ays Shaftoli", 0.86, 0.2, True, cands, level="sku"))
+    assert web.explain(by_text, params)["r"] == "text" and web.explain(by_text, params)["w"] == "shaftoli"
+    assert web.explain(plain, params)["r"] == "ok"
+
+
 def test_parallel_teach_requests_create_only_one_sku(client):
     start = Barrier(2, timeout=5)
 
