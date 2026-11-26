@@ -371,6 +371,10 @@ def explain(d, params) -> dict:
         info["r"], info["w"] = "text", m.text
     elif m.is_known:
         info["r"] = "context" if d.context_fixed else "ok"
+    elif m.mismatch is not None:
+        # ko'rinishi o'xshaydi, lekin qadoqdagi yozuv boshqa: label (butunlay boshqa mahsulot)
+        # yoki label_brand (brend to'g'ri, mahsulot boshqa); w — qadoqda o'qilgan so'z
+        info["r"], info["w"] = ("label_brand" if m.level == "brand" else "label"), m.mismatch
     elif m.level == "variant":
         info["r"], info["c"] = "variant", round(float(top.get("color", 0.0)), 3)
     elif m.level == "brand":
@@ -406,6 +410,8 @@ def geometry(result, params=None) -> dict:
         }
         if m and m.level == "variant" and m.candidates:
             item["v"] = m.candidates[0].get("sku_id")      # shunga o'xshaydi, rangi boshqa
+        if item["s"] is None and d.cluster >= 0:
+            item["g"] = int(d.cluster)                     # katalogda yo'q, bir-biriga o'xshash qutilar guruhi
         if params is not None:
             item["why"] = explain(d, params)
         dets.append(item)

@@ -199,3 +199,130 @@ def test_ocr_service_requires_the_token_and_limits_the_batch():
     assert client.post("/read", files=bad, headers=headers).status_code == 400
     with pytest.raises(ValueError):
         create_ocr_app("short", reader=Fake())
+
+
+# ---- Tanilgan qutini yozuv bilan tekshirish --------------------------------------
+
+def big(text, conf=1.0, size=0.18):
+    return [text, conf, 0.2, 0.8, size]
+
+
+COOKIES = ["zarqand", "cookies", "apple", "quality", "every", "bite"]      # namuna rasmida o'qilgan
+
+
+def test_label_words_keep_confident_words_once():
+    readings = [[["ZARQAND", 1.0, 0, 1, 0.04], ["COOKiES", 0.88, 0, 1, 0.15], ["100% QUALITY", 0.99, 0, 1, 0.03]],
+                [["Zarqand", 0.99, 0, 1, 0.04], ["new", 0.99, 0, 1, 0.1], ["xyzw", 0.4, 0, 1, 0.2], ["ab", 1.0, 0, 1, 0.2]],
+                []]
+    assert ocr.label_words(readings) == ["zarqand", "cookies", "quality"]
+    assert ocr.label_words(readings, limit=2) == ["zarqand", "cookies"]
+    assert ocr.label_words(None) == []
+
+
+def test_judge_supports_a_box_that_shows_the_products_own_words():
+    assert ocr.judge([big("ZARQAND", size=0.1), big("CookiES", 0.84, 0.3)], COOKIES, "ZARQAND") == ("support", "zarqand")
+    # OCR xatosi namunada ham, javonda ham bir xil takrorlanadi: «Груша» -> "Tpya"
+    assert ocr.judge([big("Tpya", 0.91)], ["hau", "tpya"], "Наш сад")[0] == "support"
+
+
+def test_judge_rejects_only_on_large_confident_foreign_text():
+    assert ocr.judge([big("Florida"), big("chaca nut", 0.69, 0.08)], COOKIES, "ZARQAND") == ("contradict", "Florida")
+    assert ocr.judge([big("CERTIFIED", 0.99, 0.02)], COOKIES, "ZARQAND") == ("silent", "")     # mayda yozuv
+    assert ocr.judge([big("Florida", 0.9)], COOKIES, "ZARQAND") == ("silent", "")              # ishonch past
+    assert ocr.judge([big("COCKICS", 0.99, 0.29)], COOKIES, "ZARQAND") == ("silent", "")       # o'z so'ziga yaqin
+    assert ocr.judge([big("OK!")], COOKIES, "ZARQAND") == ("silent", "")                       # juda qisqa
+    assert ocr.judge([], COOKIES) == ("silent", "") and ocr.judge([big("Florida")], []) == ("silent", "")
+
+
+def test_judge_keeps_the_brand_when_the_box_names_another_product_of_it():
+    texts = [big("ZARQAND", size=0.1), big("MINI", size=0.09), big("MANGO", size=0.17)]
+    assert ocr.judge(texts, COOKIES, "ZARQAND") == ("brand", "MANGO")
+    assert ocr.judge(texts, COOKIES, None)[0] == "support"          # brend kiritilmagan — ajratib bo'lmaydi
+
+
+class WordCatalog:
+    def __init__(self, words):
+        self.words = words
+
+    def sku_info(self):
+        return {"cookies": {"name": "COOKIES", "brand": "ZARQAND", "words": self.words},
+                "plain": {"name": "Plain", "brand": None, "words": []}}
+
+
+def known_box(score, x, sku="cookies"):
+    match = Match(sku_id=sku, name=sku.upper(), score=score, margin=score, is_known=True, level="sku",
+                  candidates=[{"sku_id": sku, "score": score}])
+    return Detection(box=Box(x, 100, x + 100, 300), match=match)
+
+
+def test_verify_rejects_boxes_whose_label_names_something_else():
+    image = np.zeros((500, 1000, 3), np.uint8)
+    florida, mango, real = known_box(0.68, 0), known_box(0.72, 150), known_box(0.84, 300)
+    strong, plain = known_box(0.9, 450), known_box(0.5, 600, sku="plain")
+    by_text = known_box(0.6, 750)
+    by_text.match.text = "cookies"                     # yozuv bilan aniqlangan — qayta tekshirilmaydi
+    reader = Reader([[big("Florida")], [big("ZARQAND", size=0.1), big("MANGO")], [big("ZARQAND"), big("cookies")]])
+    changed = ocr.verify_with_text([strong, real, mango, plain, florida, by_text], image, reader, WordCatalog(COOKIES),
+                                   max_boxes=3)
+    assert changed == 2 and len(reader.crops) == 3                 # eng past balli uchtasi; namunasiz mahsulot o'qilmaydi
+    assert (florida.match.is_known, florida.match.level, florida.match.mismatch) == (False, None, "Florida")
+    assert florida.to_dict()["label_mismatch"] == "Florida"
+    assert (mango.match.is_known, mango.match.level, mango.match.brand, mango.match.mismatch) == (False, "brand", "ZARQAND", "MANGO")
+    assert real.match.is_known and strong.match.is_known and plain.match.is_known and by_text.match.is_known
+    assert max(reader.crops[0].shape[:2]) <= 900                   # tekshiruv uchun kichik rasm yetarli
+    # faqat chegaraga yaqin balli qutilar o'qiladi
+    weak, sure = known_box(0.68, 0), known_box(0.9, 150)
+    reader = Reader([[big("Florida")]])
+    assert ocr.verify_with_text([sure, weak], image, reader, WordCatalog(COOKIES), risky=lambda m: m.score < 0.75) == 1
+    assert len(reader.crops) == 1 and not weak.match.is_known and sure.match.is_known
+
+
+def test_verify_does_nothing_without_sample_words_or_an_answer():
+    image = np.zeros((500, 1000, 3), np.uint8)
+    box = known_box(0.7, 0)
+    reader = Reader([[big("Florida")]])
+    assert ocr.verify_with_text([box], image, reader, WordCatalog([])) == 0 and reader.crops is None
+    assert ocr.verify_with_text([box], image, Reader(None), WordCatalog(COOKIES)) == 0 and box.match.is_known
+    assert ocr.verify_with_text([box], image, Reader([[]]), WordCatalog(COOKIES)) == 0 and box.match.is_known
+
+
+class Reply:
+    def __init__(self, count):
+        self.count = count
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return {"results": [[["x", 1.0, 0, 1, 0.1]] for _ in range(self.count)]}
+
+
+def test_reader_sends_small_batches_and_keeps_what_was_read(monkeypatch):
+    reader = ocr.RemoteLabelReader("http://127.0.0.1:9", token="t", batch=4)
+    sent = []
+
+    def post(url, files, timeout):
+        sent.append(len(files))
+        if len(sent) == 3:
+            raise TimeoutError
+        return Reply(len(files))
+
+    monkeypatch.setattr(reader.session, "post", post)
+    crops = [np.zeros((20, 20, 3), np.uint8)] * 10
+    results = reader.read(crops)
+    assert sent == [4, 4, 2] and len(results) == 10
+    assert all(results[:8]) and results[8:] == [[], []]            # o'qilmaganlari bo'sh, oldingilari saqlanadi
+    reader.budget = 0                                                # vaqt tugagan: so'rov yuborilmaydi
+    assert reader.read(crops) == [[]] * 10 and sent == [4, 4, 2]
+
+
+def test_sample_words_are_read_when_a_product_is_added():
+    from rasta.config import Config
+    from rasta.pipeline import RastaPipeline
+    pipe = RastaPipeline.__new__(RastaPipeline)
+    pipe.cfg = Config.load()
+    assert pipe._label_words([np.zeros((300, 200, 3), np.uint8)]) == []          # OCR ulanmagan
+    pipe.label_reader = Reader([[big("ZARQAND"), big("Cookies", 0.9)], [big("Apple")]])
+    images = [np.zeros((300, 200, 3), np.uint8), np.zeros((2400, 1200, 3), np.uint8), np.zeros((10, 10, 3), np.uint8)]
+    assert pipe._label_words(images) == ["zarqand", "cookies", "apple"]
+    assert len(pipe.label_reader.crops) == 2 and max(pipe.label_reader.crops[1].shape[:2]) == 1600

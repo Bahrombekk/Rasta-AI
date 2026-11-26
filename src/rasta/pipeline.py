@@ -27,7 +27,7 @@ from .embedder import build_embedder, crop_boxes
 from .features import aspect_ratio, color_descriptors, to_rgb_array
 from .imageio import load_image
 from .kpi import compute_kpi
-from .ocr import build_label_reader, refine_with_text
+from .ocr import build_label_reader, label_crop, label_words, refine_with_text, verify_with_text
 from .oos import detect_gaps, verify_gaps
 from .shelf import assign_rows, mark_background_rows, mark_cut_rows, renumber_rows
 from .types import AnalysisResult, Detection
@@ -132,6 +132,9 @@ class RastaPipeline:
         elif boxes is not None:
             from .augment import crop_normalized
             images = [im if b is None else crop_normalized(im, b) for im, b in zip(images, boxes)]
+        # Namunadagi yozuv ("o'z so'zlari") katalogda saqlanadi: tahlilda tanilgan quti shu
+        # so'zlar bilan tekshiriladi (rasta.ocr.verify_with_text)
+        words = self._label_words(images)
         n_aug = int(self.cfg.get("onboarding.augment", 16) or 0)
         few = len(images) < int(self.cfg.get("onboarding.augment_if_fewer", 2))
         augmented = augment is not False and n_aug > 1 and (augment or few or source == "packshot")
@@ -144,8 +147,24 @@ class RastaPipeline:
         if brand:
             payload["brand"] = brand
         payload["src"] = source or ("packshot" if augmented else "crop")
+        if words:
+            payload["words"] = words
         return self.catalog.add_sku(sku_id, name, vecs, extra=payload or None,
                                     colors=cols, aspects=asps)
+
+    def _label_words(self, images: list, limit: int = 6) -> list[str]:
+        """Namuna rasmlarida (mahsulotgacha kesilgan) o'qilgan so'zlar; OCR ulanmagan bo'lsa — []."""
+        if self.label_reader is None or not images or not self.cfg.get("ocr.enabled", True):
+            return []
+        from .types import Box
+        crops = []
+        for im in images[:limit]:
+            a = np.asarray(im)
+            if a.ndim == 3 and min(a.shape[:2]) >= 32:
+                crops.append(label_crop(a[:, :, :3], Box(0, 0, a.shape[1], a.shape[0]), pad=0.0,
+                                        min_long=900, max_long=1600))
+        readings = self.label_reader.read(crops) if crops else None
+        return label_words(readings) if readings else []
 
     # ---- Tahlil ------------------------------------------------------------
 
@@ -239,11 +258,33 @@ class RastaPipeline:
         # 5b. Yorliqdagi yozuv: brend aniq, SKU noaniq qutilar (KPI va klasterlashdan oldin)
         if self.label_reader is not None and detections and cfg.get("ocr.enabled", True):
             t_ocr = time.perf_counter()
+            full = []                       # asl rasm faqat kerak bo'lganda va bir marta ochiladi
+
+            def original():
+                if not full:
+                    full.append(hires() if callable(hires) else hires)
+                return full[0]
+
+            min_conf = float(cfg.get("ocr.min_conf", 0.5))
             fixed = refine_with_text(
-                detections, image, self.label_reader, self.catalog, hires=hires,
-                max_boxes=int(cfg.get("ocr.max_boxes", 12)), min_conf=float(cfg.get("ocr.min_conf", 0.5)))
+                detections, image, self.label_reader, self.catalog, hires=original,
+                max_boxes=int(cfg.get("ocr.max_boxes", 12)), min_conf=min_conf)
+            rejected = 0
+            if cfg.get("ocr.verify", True):
+                gap = float(cfg.get("ocr.verify_margin", 0.10))
+
+                def risky(m):               # ball o'z chegarasidan (τ) ozgina yuqori
+                    source = m.candidates[0].get("src") if m.candidates else None
+                    return m.score < self.params.limits_for_source(source)[0] + gap
+
+                rejected = verify_with_text(
+                    detections, image, self.label_reader, self.catalog, hires=original,
+                    max_boxes=int(cfg.get("ocr.verify_boxes", 12)), min_conf=min_conf,
+                    strong=float(cfg.get("ocr.verify_conf", 0.95)), big=float(cfg.get("ocr.verify_size", 0.05)),
+                    risky=risky)
             t["ocr"] = (time.perf_counter() - t_ocr) * 1000
             t["ocr_fixed"] = fixed
+            t["ocr_rejected"] = rejected
 
         # 6. Noma'lumlarni klasterlash
         clusters: dict = {}

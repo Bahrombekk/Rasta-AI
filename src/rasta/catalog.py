@@ -392,8 +392,11 @@ class SkuCatalog:
             sku = pl.get("sku_id", "?")
             r = out.setdefault(sku, {"name": pl.get("name", sku), "brand": pl.get("brand"),
                                      "category": pl.get("category"), "barcode": pl.get("barcode"),
-                                     "count": 0})
+                                     "count": 0, "words": []})
             r["count"] += 1
+            for w in pl.get("words") or ():       # namuna rasmlarida o'qilgan yozuv (rasta.ocr)
+                if w not in r["words"]:
+                    r["words"].append(w)
         return out
 
     def brand_map(self) -> dict[str, str]:

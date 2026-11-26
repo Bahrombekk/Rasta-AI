@@ -4,9 +4,15 @@ Vektor qidiruv brendni topib, lekin ikki ta'm/hajm orasida ikkilanganda ("brend 
 yoki "o'xshaydi, rangi farq qiladi" (variant) deganda, qutidagi yozuv o'qiladi va katalog
 NOMIdagi so'zlar bilan solishtiriladi: "shaftoli", "ORANGE & MANGO", "0,5L".
 
-Qoida ataylab ehtiyotkor: ishonchli (SKU darajasidagi) qaror hech qachon o'zgartirilmaydi,
-noma'lum quti yozuvning o'zi bilan tanilmaydi, ikki mahsulotga birdek mos kelgan yozuv
-e'tiborga olinmaydi. O'lchovlar: BENCHMARK.md 11f.
+Qoida ataylab ehtiyotkor: noma'lum quti yozuvning o'zi bilan tanilmaydi, ikki mahsulotga
+birdek mos kelgan yozuv e'tiborga olinmaydi. O'lchovlar: BENCHMARK.md 11f.
+
+Ikkinchi vazifa — tekshirish: tanilgan qutining yozuvi shu mahsulotning katalogdagi namuna
+rasmida o'qilgan yozuv bilan solishtiriladi. Qutida yirik va aniq boshqa so'z turgan,
+mahsulotning o'z so'zlaridan esa birortasi ham o'qilmagan bo'lsa («Florida» qadog'i
+«Cookies» deb tanilgan), moslik bekor qilinadi. Nom bilan emas, namunadagi yozuv bilan
+solishtiriladi: katalog nomi qadoqdagi yozuvdan farq qilishi mumkin, OCR'ning bir xil
+xatosi esa ikkala tomonda takrorlanadi. O'lchovlar: BENCHMARK.md 11g.
 
 Matnni alohida xizmat o'qiydi (ocr/ — PaddleOCR o'z konteynerida); manzili `RASTA_OCR_URL`
 yoki `ocr.url`. Manzil berilmagan bo'lsa yoki xizmat javob bermasa, tahlil OCR'siz davom etadi.
@@ -156,15 +162,86 @@ def choose(texts, options: dict[str, tuple[str, Optional[str]]], *, min_conf: fl
     return sku, word
 
 
+# ---- Tanilgan qutini tekshirish ----------------------------------------------
+
+def _words(text: str) -> list[str]:
+    return [w.strip("'") for w in re.findall(r"[a-zа-яё']+", str(text).lower().translate(_APOS))]
+
+
+def label_words(readings, *, min_conf: float = 0.8, limit: int = 60) -> list[str]:
+    """Namuna rasmlarida o'qilgan so'zlar — mahsulotning "o'z yozuvi" (katalogda saqlanadi).
+    readings: har rasm uchun [(matn, ishonch, ...)]."""
+    out: list[str] = []
+    for texts in readings or []:
+        for t in texts or []:
+            if float(t[1]) < min_conf:
+                continue
+            for w in _words(t[0]):
+                if len(w) >= 3 and w not in _STOP and w not in out:
+                    out.append(w)
+    return out[:limit]
+
+
+def _near(word: str, token: str, ratio: float = 0.7) -> bool:
+    """Token mahsulotning o'z so'ziga yaqinmi (OCR xatosi bilan o'qilgan bo'lishi mumkin)."""
+    for norm in (_translit, _skeleton):
+        k = norm(word).replace(" ", "")
+        if len(k) >= 3 and any(SequenceMatcher(None, k, t).ratio() >= ratio
+                               for t in norm(token).split() if len(t) >= 3):
+            return True
+    return False
+
+
+def judge(texts, own: list[str], brand: Optional[str] = None, *, min_conf: float = 0.5,
+          strong: float = 0.95, big: float = 0.05) -> tuple[str, str]:
+    """Qutidagi yozuv mahsulotning o'z so'zlariga mos keladimi.
+
+    texts: [(matn, ishonch, x1, x2, harf o'lchami)]; own: namunadagi so'zlar + nom + brend.
+    -> ("support", so'z)     o'z so'zi o'qildi
+       ("brand", so'z)       faqat brend so'zi o'qildi, yonida yirik begona so'z bor
+       ("contradict", so'z)  o'z so'zi yo'q, yirik va aniq begona so'z bor
+       ("silent", "")        aniq narsa o'qilmadi — qaror o'zgarmaydi
+    Begona so'z: ishonchi `strong` dan, harfi quti kichik tomonining `big` ulushidan kam emas
+    (brend nomi yirik yoziladi, tarkib va belgilar mayda), kamida 4 harf.
+    """
+    tokens = [str(t[0]) for t in texts if float(t[1]) >= min_conf]
+    if not tokens or not own:
+        return "silent", ""
+    spoken = lambda w: _SYN.get(w, (w,))                      # noqa: E731
+    hit = [w for w in own if any(_hit(v, tokens) for v in spoken(w))]
+    alien = []
+    for t in texts:
+        size = float(t[4]) if len(t) > 4 else 0.0
+        letters = re.sub(r"[^a-zа-яё]", "", str(t[0]).lower())
+        if float(t[1]) >= strong and size >= big and len(letters) >= 4 and not any(
+                _near(v, str(t[0])) for w in own for v in spoken(w)):
+            alien.append((size, str(t[0])))
+    word = max(alien)[1] if alien else ""
+    if hit:
+        marks = set(_words(brand or ""))
+        if marks and alien and all(w in marks for w in hit):
+            return "brand", word
+        return "support", hit[0]
+    return ("contradict", word) if alien else ("silent", "")
+
+
 # ---- Xizmat mijozi -----------------------------------------------------------
 
 class RemoteLabelReader:
-    """OCR xizmati (ocr/) mijozi. Xatoda None qaytaradi — tahlil OCR'siz davom etadi."""
+    """OCR xizmati (ocr/) mijozi. Xatoda None qaytaradi — tahlil OCR'siz davom etadi.
 
-    def __init__(self, url: str, token: Optional[str] = None, timeout: float = 60.0):
+    Rasmlar kichik to'plamlarda yuboriladi: band protsessorda bitta yirik qutini o'qish
+    10 soniyagacha cho'ziladi, 12 tasi bitta so'rovda vaqt chegarasidan oshib, hammasi
+    yo'qolardi. `budget` — bir chaqiruvga ajratilgan umumiy vaqt; tugagach qolgan rasmlar
+    o'qilmagan ([]) deb qaytadi."""
+
+    def __init__(self, url: str, token: Optional[str] = None, timeout: float = 60.0,
+                 batch: int = 4, budget: float = 60.0):
         import requests
         self.url = url.rstrip("/")
         self.timeout = timeout
+        self.batch = max(1, int(batch))
+        self.budget = budget
         self.session = requests.Session()
         self.session.headers["X-Rasta-AI-Token"] = token or os.environ.get("RASTA_AI_TOKEN", "")
         self._warned = False
@@ -176,33 +253,44 @@ class RemoteLabelReader:
             return False
 
     def read(self, crops: list[np.ndarray]) -> Optional[list[list]]:
+        import time
         from PIL import Image
-        files = []
-        for i, crop in enumerate(crops):
-            buf = io.BytesIO()
-            Image.fromarray(crop).save(buf, "JPEG", quality=92)
-            files.append(("images", (f"{i}.jpg", buf.getvalue(), "image/jpeg")))
-        try:
-            r = self.session.post(self.url + "/read", files=files, timeout=(2, self.timeout))
-            r.raise_for_status()
-            results = r.json()["results"]
-            if len(results) != len(crops):
-                raise ValueError("javob uzunligi mos emas")
-            self._warned = False
-            return results
-        except Exception as error:               # tarmoq, vaqt tugashi, noto'g'ri javob
-            if not self._warned:
-                print(f"[rasta] OCR xizmati javob bermadi ({type(error).__name__}) — yozuvsiz davom etiladi",
-                      file=sys.stderr)
-                self._warned = True
-            return None
+        results: list[list] = []
+        started = time.monotonic()
+        for k in range(0, len(crops), self.batch):
+            left = self.budget - (time.monotonic() - started)
+            if left <= 1:
+                break
+            files = []
+            for i, crop in enumerate(crops[k:k + self.batch]):
+                buf = io.BytesIO()
+                Image.fromarray(crop).save(buf, "JPEG", quality=92)
+                files.append(("images", (f"{i}.jpg", buf.getvalue(), "image/jpeg")))
+            try:
+                r = self.session.post(self.url + "/read", files=files, timeout=(2, min(self.timeout, left)))
+                r.raise_for_status()
+                part = r.json()["results"]
+                if len(part) != len(files):
+                    raise ValueError("javob uzunligi mos emas")
+                results.extend(part)
+                self._warned = False
+            except Exception as error:               # tarmoq, vaqt tugashi, noto'g'ri javob
+                if not self._warned:
+                    print(f"[rasta] OCR xizmati javob bermadi ({type(error).__name__}) — yozuvsiz davom etiladi",
+                          file=sys.stderr)
+                    self._warned = True
+                if not results:
+                    return None
+                break
+        return results + [[] for _ in range(len(crops) - len(results))]
 
 
 def build_label_reader(cfg):
     url = os.environ.get("RASTA_OCR_URL") or cfg.get("ocr.url")
     if not url:
         return None
-    return RemoteLabelReader(str(url), timeout=float(cfg.get("ocr.timeout", 60)))
+    return RemoteLabelReader(str(url), timeout=float(cfg.get("ocr.timeout", 60)),
+                             budget=float(cfg.get("ocr.budget", 60)))
 
 
 # ---- Tahlilga qo'llash ---------------------------------------------------------
@@ -271,3 +359,52 @@ def refine_with_text(detections, image: np.ndarray, reader, catalog, *, hires=No
                           text=word)
         fixed += 1
     return fixed
+
+
+def verify_with_text(detections, image: np.ndarray, reader, catalog, *, hires=None,
+                     max_boxes: int = 12, min_conf: float = 0.5, strong: float = 0.95,
+                     big: float = 0.05, risky=None) -> int:
+    """Tanilgan qutilarni yorliq yozuvi bilan tekshirish: qadoqda aniq boshqa so'z turgan
+    bo'lsa, moslik bekor qilinadi (yoki faqat brend darajasida qoldiriladi).
+
+    Eng past balli qutilardan boshlanadi (noto'g'ri mosliklar o'sha yerda to'planadi) va
+    `max_boxes` bilan cheklanadi; `risky(match)` berilsa — faqat u True qaytargan (chegaraga
+    yaqin balli) qutilar o'qiladi: har qutini o'qish ~2 s turadi, ishonchli mosliklarda esa
+    xato deyarli uchramaydi. Katalogda namuna yozuvi saqlanmagan mahsulotlar tekshirilmaydi —
+    nomning o'zi bilan solishtirish to'g'ri qutilarni ham rad etardi.
+    -> nechta qutining qarori o'zgardi."""
+    info = None
+    jobs = []
+    for d in sorted((d for d in detections if d.match is not None and d.match.is_known
+                     and d.match.text is None and d.match.sku_id
+                     and (risky is None or risky(d.match))), key=lambda d: d.match.score):
+        if info is None:
+            info = catalog.sku_info()
+        entry = info.get(d.match.sku_id) or {}
+        if entry.get("words"):
+            own = list(dict.fromkeys(list(entry["words"]) + keywords(entry.get("name") or "", None)
+                                     + [w for w in _words(entry.get("brand") or "") if len(w) >= 3]))
+            jobs.append((d, own, entry.get("brand")))
+            if len(jobs) >= max_boxes:
+                break
+    if not jobs:
+        return 0
+    source, scale = image, 1.0
+    big_image = hires() if callable(hires) else hires
+    if big_image is not None and big_image.shape[1] > image.shape[1]:
+        source, scale = big_image, big_image.shape[1] / image.shape[1]
+    # Brend va mahsulot nomi yirik yoziladi: kichikroq rasm yetarli va tezroq o'qiladi
+    results = reader.read([label_crop(source, d.box, scale, min_long=700, max_long=900) for d, _, _ in jobs])
+    if results is None:
+        return 0
+    changed = 0
+    for (d, own, brand), texts in zip(jobs, results):
+        verdict, word = judge(texts, own, brand, min_conf=min_conf, strong=strong, big=big)
+        if verdict == "contradict":
+            d.match = replace(d.match, is_known=False, level=None, mismatch=word)
+        elif verdict == "brand":
+            d.match = replace(d.match, is_known=False, level="brand", brand=brand, mismatch=word)
+        else:
+            continue
+        changed += 1
+    return changed

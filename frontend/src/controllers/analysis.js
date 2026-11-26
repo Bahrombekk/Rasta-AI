@@ -2,7 +2,7 @@ export default function mountPage() {
   const $ = id => document.getElementById(id);
   const cv = $("cv"), ctx = cv.getContext("2d");
   let file = null, img = null, pts = [], drawing = false, closed = false;
-  let R = null, showBoxes = true, hl = null, analysis = null, pendingImage = null;
+  let R = null, showBoxes = true, hl = null, hlGroup = null, analysis = null, pendingImage = null;
   let canTeach = false;
   let activeVisit = null;
   let agent = false;
@@ -51,6 +51,8 @@ export default function mountPage() {
       text: `Yorliqdagi yozuv bo‘yicha aniqlandi: ${why.n}${why.w ? ` (o‘qilgan: «${why.w}»)` : ""}. Brend ko‘rinishidan tanilgan, o‘xshashlik ${pct(why.sc)}.`,
       context: `Qo‘shni mahsulotlarga qarab tanildi: ${why.n} (o‘xshashlik ${pct(why.sc)}, chegara ${pct(why.tau)}).`,
       variant: `${why.n} ga o‘xshaydi (o‘xshashlik ${pct(why.sc)}), lekin rangi farq qiladi (rang mosligi ${pct(why.c ?? 0)}). Bu shu mahsulotning boshqa ta’mi yoki turi bo‘lishi mumkin — alohida mahsulot sifatida qo‘shing.`,
+      label: `Tanilmadi: ko‘rinishi ${why.n} ga o‘xshaydi (o‘xshashlik ${pct(why.sc)}), lekin qadoqda${why.w ? ` «${why.w}»` : " boshqa so‘z"} yozilgan — bu boshqa mahsulot.`,
+      label_brand: `Faqat brend aniqlandi: brend yozuvi ${why.n} bilan bir xil, lekin qadoqda${why.w ? ` «${why.w}»` : " boshqa nom"} yozilgan — shu brendning boshqa mahsuloti.`,
       brand: `Faqat brend aniqlandi: ikki o‘xshash mahsulot orasida farq juda kichik (${pct(why.m)}).`,
       empty: "Katalog bo‘sh — taqqoslash uchun mahsulot yo‘q.",
       low: `Tanilmadi: ${near}. Bu mahsulot katalogda yo‘q yoki uning namunasi yetarli emas.`,
@@ -149,9 +151,13 @@ export default function mountPage() {
         }
       }
       ctx.restore();
-      R.detections.forEach(d => {
+      R.detections.forEach((d, i) => {
         const [x1, y1, x2, y2] = scaledBox(d.b);
         const col = d.s ? R.colors[d.s] : null;
+        if (hlGroup !== null && R.groupOf[i] === hlGroup) {      // ro'yxatda ustiga borilgan guruh
+          ctx.lineWidth = lw * 1.8; ctx.strokeStyle = "#22d3ee"; ctx.fillStyle = "#22d3ee33";
+          ctx.fillRect(x1, y1, x2 - x1, y2 - y1); ctx.strokeRect(x1, y1, x2 - x1, y2 - y1); return;
+        }
         const on = !hl || d.s === hl;
         if (!col && d.v) {            // o'xshaydi, lekin rangi farq qiladi: uzuq sariq ramka
           ctx.save(); ctx.globalAlpha = hl ? .3 : 1;
@@ -311,7 +317,8 @@ export default function mountPage() {
     const scale = [cv.width / d.size[0], cv.height / d.size[1]];
     R = { ...d, data: d, scale, roiPts: d.roi?.map(([x, y]) => [x * scale[0], y * scale[1]]),
           colors: Object.fromEntries(s.products.map(p => [p.sku_id, p.color])) };
-    hl = null; showBoxes = true; $("boxesBtn").classList.add("on");
+    hl = null; hlGroup = null; showBoxes = true; $("boxesBtn").classList.add("on");
+    groupsUi();
     $("gapLegend").innerHTML = gapLayers
       .filter(({ key }) => d[key]?.length)
       .map(({ key, color, label }) => `<li><span style="--gap-color:${color}"></span>${label} · ${d[key].length}</li>`)
@@ -433,6 +440,46 @@ export default function mountPage() {
     $("teachNew").hidden = $("teachSku").value !== "__new";
   }
   $("teachSku").onchange = () => { $("teachNew").hidden = $("teachSku").value !== "__new"; };
+  // Katalogda yo'q, lekin bir-biriga o'xshash qutilar guruhlari: bitta bosishda hammasi tanlanadi
+  function groupsUi() {
+    const members = new Map();
+    R.detections.forEach((d, i) => { if (d.g != null && !d.s) members.set(d.g, [...(members.get(d.g) || []), i]); });
+    R.groups = [...members.values()].filter(list => list.length > 1).sort((a, b) => b.length - a.length);
+    R.groupOf = {};
+    R.groups.forEach((list, g) => list.forEach(i => { R.groupOf[i] = g; }));
+    $("groupsCard").hidden = !R.groups.length;
+    if (!R.groups.length) return;
+    const shown = R.groups.slice(0, 12), boxes = R.groups.reduce((sum, list) => sum + list.length, 0);
+    $("groupsTitle").textContent = `Katalogda yo‘q · ${R.groups.length} guruh`;
+    $("groupsHelp").textContent = `Bir-biriga o‘xshash ${boxes} ta quti guruhlandi.`
+      + (canTeach ? " Guruhni bosing — hamma qutisi tanlanadi, nom bersangiz katalogga qo‘shiladi." : "");
+    $("groups").innerHTML = shown.map((list, g) => `
+      <button class="prow group-row" type="button" data-group="${g}">
+        <canvas class="th" width="96" height="96" aria-hidden="true"></canvas>
+        <div style="min-width:0"><div class="nm">O‘xshash mahsulot</div>
+          <div class="sub">${canTeach ? "Tanlash uchun bosing" : "Katalogga qo‘shilmagan"}</div></div>
+        <div class="r"><b>${list.length} ta</b></div>
+      </button>`).join("")
+      + (R.groups.length > shown.length ? `<div class="sub group-more">+ yana ${R.groups.length - shown.length} ta kichik guruh</div>` : "");
+    const ratio = img.naturalWidth / R.data.size[0];
+    $("groups").querySelectorAll("[data-group]").forEach(row => {
+      const g = Number(row.dataset.group), list = R.groups[g];
+      const area = i => { const [x1, y1, x2, y2] = R.detections[i].b; return (x2 - x1) * (y2 - y1); };
+      const [x1, y1, x2, y2] = R.detections[list.reduce((a, b) => area(b) > area(a) ? b : a)].b.map(v => v * ratio);
+      const thumb = row.querySelector("canvas"), side = Math.max(x2 - x1, y2 - y1), fit = thumb.width / side;
+      const w = (x2 - x1) * fit, h = (y2 - y1) * fit;
+      thumb.getContext("2d").drawImage(img, x1, y1, x2 - x1, y2 - y1, (thumb.width - w) / 2, (thumb.height - h) / 2, w, h);
+      row.onmouseenter = () => { hlGroup = g; draw(); };
+      row.onmouseleave = () => { hlGroup = null; draw(); };
+      row.onclick = () => {
+        if (!canTeach) return;
+        const all = list.every(i => sel.has(i));
+        list.forEach(i => all ? sel.delete(i) : sel.add(i));
+        picked = -1; whyUi(); teachUi(); draw();
+        if (!all) { $("teachSku").value = "__new"; $("teachNew").hidden = false; $("teach").scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+      };
+    });
+  }
   function teachUi() {
     $("teach").hidden = sel.size === 0;
     $("teachTitle").textContent = `Tanlangan: ${sel.size} ta mahsulot`;

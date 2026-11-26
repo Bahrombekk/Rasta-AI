@@ -359,3 +359,7 @@ input[type=file] { display: none; }
   .share { grid-template-columns: 1fr; justify-items: center; }
   .drop { padding: 40px 16px; }
 }
+.group-row { width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+             grid-template-columns: 48px minmax(0, 1fr) auto; }
+.group-row .th { width: 48px; height: 48px; object-fit: contain; }
+.group-more { padding: 4px 8px; color: var(--muted); font-size: 12.5px; }

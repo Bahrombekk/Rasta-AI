@@ -33,16 +33,20 @@ class PaddleReader:
             enable_mkldnn=False, cpu_threads=threads or int(os.environ.get("RASTA_OCR_THREADS", "8")))
 
     def read(self, pixels: np.ndarray) -> list[list]:
-        """RGB image -> [[text, confidence, x1, x2], ...]; x1, x2 are the text's left and right
-        edges as a fraction of the image width."""
-        width = pixels.shape[1]
+        """RGB image -> [[text, confidence, x1, x2, size], ...]; x1, x2 are the text's left and
+        right edges as a fraction of the image width, size is the letter height as a fraction of
+        the image's shorter side (a brand name is large, the ingredients are not)."""
+        height, width = pixels.shape[:2]
         rows = []
         for page in self.ocr.predict(np.ascontiguousarray(pixels[:, :, ::-1])):
             for text, score, poly in zip(page["rec_texts"], page["rec_scores"], page["rec_polys"]):
                 if text.strip():
-                    xs = np.asarray(poly)[:, 0]
+                    points = np.asarray(poly, dtype=float)
+                    xs = points[:, 0]
+                    sides = np.linalg.norm(points - np.roll(points, -1, axis=0), axis=1)
                     rows.append([text.strip(), round(float(score), 3),
-                                 round(float(xs.min()) / width, 3), round(float(xs.max()) / width, 3)])
+                                 round(float(xs.min()) / width, 3), round(float(xs.max()) / width, 3),
+                                 round(float(sides.min()) / min(height, width), 3)])
         return rows
 
 

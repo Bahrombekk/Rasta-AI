@@ -96,6 +96,11 @@ export default function Analysis() {
                 <p className="section-title" id="plTitle">Mahsulotlar</p>
                 <div className="plist" id="plist"></div>
               </section>
+              <section className="card card-pad" id="groupsCard" hidden>
+                <p className="section-title" id="groupsTitle">Katalogda yo‘q</p>
+                <p className="analysis-help" id="groupsHelp"></p>
+                <div className="plist" id="groups"></div>
+              </section>
               <section className="card card-pad why-card" id="why" hidden>
                 <p className="section-title">Tanlangan mahsulot</p>
                 <p id="whyText"></p>

@@ -121,7 +121,7 @@ recognition:
 # Yorliqdagi yozuvni o'qish (OCR). Alohida xizmat (ocr/) ulangan bo'lsa ishlaydi: manzili
 # RASTA_OCR_URL muhit o'zgaruvchisi yoki quyidagi url. Faqat "brend darajasida" yoki "variant"
 # deb qolgan qutilar o'qiladi; yozuv katalog nomidagi so'zlar bilan solishtiriladi va faqat
-# bitta mahsulotga mos kelsa, quti o'sha mahsulot deb sanaladi. Ishonchli qaror o'zgarmaydi.
+# bitta mahsulotga mos kelsa, quti o'sha mahsulot deb sanaladi.
 # O'lchov (BENCHMARK.md 11f): muzlatgichda ta'm 34 qutidan 19 tasida o'qildi, har kadrda
 # 1 ta quti aniqlashtirildi; qutiga ~3 s (CPU).
 ocr:
@@ -129,6 +129,16 @@ ocr:
   url: ""
   max_boxes: 12         # bitta tahlilda eng ko'pi bilan nechta quti o'qiladi (yiriklari birinchi)
   min_conf: 0.5         # o'qilgan so'zning eng kam ishonchi
+  # Tanilgan qutini tekshirish: qadoqdagi yozuv mahsulotning katalogdagi namuna rasmida
+  # o'qilgan yozuv bilan solishtiriladi; yirik va aniq boshqa so'z turgan bo'lsa, moslik
+  # bekor qilinadi («Florida» qadog'i «Cookies» deb tanilmaydi). Namuna yozuvi mahsulot
+  # qo'shilganda/qayta o'rganilganda o'qiladi. O'lchovlar: BENCHMARK.md 11g.
+  verify: true
+  verify_margin: 0.10   # faqat bali chegaradan (τ) shuncha yuqori bo'lgan qutilar o'qiladi
+  verify_boxes: 12      # ...ulardan eng past balli shunchasi
+  verify_conf: 0.95     # begona so'z shu ishonchdan past bo'lsa hisobga olinmaydi
+  verify_size: 0.05     # ...va harfi quti kichik tomonining shu ulushidan mayda bo'lsa ham
+  budget: 60            # bitta o'qish chaqiruviga ajratilgan vaqt, soniya
   timeout: 60           # sekund; xizmat javob bermasa tahlil yozuvsiz yakunlanadi
 
 onboarding:

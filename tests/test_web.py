@@ -275,6 +275,25 @@ def test_explanation_names_the_label_text_that_settled_the_product():
     assert web.explain(plain, params)["r"] == "ok"
 
 
+def test_explanation_and_geometry_for_label_mismatch_and_unknown_groups():
+    from types import SimpleNamespace
+    from rasta.catalog import RecognitionParams
+    params = RecognitionParams()
+    cands = [{"sku_id": "a", "name": "COOKIES", "score": 0.7, "src": "packshot"}]
+    other = Detection(box=Box(0, 0, 10, 10), cluster=3,
+                      match=Match("a", "COOKIES", 0.7, 0.7, False, cands, mismatch="Florida"))
+    sibling = Detection(box=Box(20, 0, 30, 10), match=Match("a", "COOKIES", 0.72, 0.72, False, cands, level="brand",
+                                                            brand="ZARQAND", mismatch="MANGO"))
+    known = Detection(box=Box(40, 0, 50, 10), cluster=3, match=Match("a", "COOKIES", 0.8, 0.8, True, cands, level="sku"))
+    assert web.explain(other, params) == {"n": "COOKIES", "sc": 0.7, "tau": web.explain(known, params)["tau"],
+                                          "m": 0.7, "r": "label", "w": "Florida"}
+    assert web.explain(sibling, params)["r"] == "label_brand" and web.explain(sibling, params)["w"] == "MANGO"
+    result = SimpleNamespace(detections=[other, sibling, known], gaps=[], suspects=[], dividers=[], roi=None)
+    items = web.geometry(result, params)["detections"]
+    assert items[0]["g"] == 3 and items[0]["s"] is None            # katalogda yo'q, guruhi bor
+    assert "g" not in items[1] and "g" not in items[2]              # guruhsiz; tanilgan quti guruhlanmaydi
+
+
 def test_parallel_teach_requests_create_only_one_sku(client):
     start = Barrier(2, timeout=5)
 

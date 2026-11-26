@@ -539,3 +539,105 @@ kompyuteridagi Docker'da (WSL2) Python jarayonlari ishga tushishda tasodifiy yiq
 2 tasida (`python:3.11-slim` va `3.12-slim` toza holda 0/25). Disk, xotira va tizim jurnalida xato
 yo'q; sababi aniqlanmadi. Yiqilgan konteynerni `restart: unless-stopped` qayta ko'taradi, backend esa
 javobsiz qolgan so'rovda tahlilni yozuvsiz yakunlaydi. Serverda bu tekshirilmagan.
+
+
+### 11g. Tanilgan qutini yozuv bilan tekshirish, guruhlar, o'lcham va qamrov — 2026-11-26
+
+Sabab — prodda ko'ringan ikki xato: «Florida» qadog'i "COOKIES" deb, DENA sharbati "Ays Tea Shaftoli"
+deb tanildi. OCR ulangan edi, lekin u faqat "brend darajasida" qolgan qutilarni hal qilardi, tanilgan
+qutini tekshirmasdi. Lokal takrorlash (katalog: ZARQAND "COOKIES", 3 ta packshot; javon rasmi
+`photo_2026-11-25_09-14-14.jpg`, 147 quti): 10 quti "COOKIES" bo'ldi — 5 tasi haqiqiy, 2 tasi Florida,
+1 tasi Crafers, 2 tasi ZARQAND Mini Mango. Ball bilan ajratib bo'lmaydi: haqiqiylari 0.705–0.847,
+noto'g'rilari 0.683–0.730. Yozuvda esa farq aniq: «Florida» 1.00 ishonch bilan o'qiladi.
+
+**Nima bilan solishtirish kerak.** Muzlatgichning to'g'ri javobi ma'lum 33–34 qutisida:
+
+| Mahsulotning "o'z so'zlari" | To'g'ri qutilardan nohaq rad etilgani |
+|---|---|
+| katalog nomi + brend | 4/34 (asl o'lcham), 3/34 (ish rasmi ×3) |
+| namuna rasmida o'qilgan so'zlar + nom + brend | **0/33** (yirik crop: 30 tasida o'z so'zi o'qildi, 3 tasida aniq narsa yo'q; kichik crop: 23 va 10) |
+
+Nom bilan solishtirish ishlamaydi: burilgan shishada faqat mayda yozuv ko'rinadi («CERTIFIED»,
+«Сахар»), «Груша» esa "Tpya" deb o'qiladi. Namuna rasmidagi yozuv bilan solishtirganda OCR'ning
+xatosi ikkala tomonda bir xil takrorlanadi va katalog nomi qadoqdagi yozuvdan farq qilsa ham ishlaydi.
+
+**Qoida** (`rasta.ocr.judge`): qutida o'z so'zlaridan birortasi o'qilmagan VA yirik (harfi quti kichik
+tomonining ≥5%), aniq (ishonch ≥0.95), kamida 4 harfli begona so'z bor → moslik bekor. Faqat brend
+so'zi o'qilgan va yonida shunday begona so'z bor → "brend darajasi". Aks holda qaror o'zgarmaydi.
+Harf o'lchami uchun OCR xizmati endi har so'zning balandligini ham qaytaradi.
+
+Boshqa mahsulot bilan ataylab noto'g'ri juftlanganda (kichik crop, yuqoridagi sozlama):
+
+| Juftlik | Rad etildi | Brend darajasi | O'zgarmadi | Noto'g'ri "tasdiqlandi" |
+|---|---|---|---|---|
+| boshqa brend, muzlatgich (215) | 82 | — | 130 | 3 |
+| shu brendning boshqa mahsuloti (74) | 9 | 13 | 24 | 28 |
+| DENA/Bliss kartonlari → Ays Tea (24) | 18 | — | 6 | 0 |
+
+Ya'ni tekshiruv xatolarning bir qismini ushlaydi (yozuv aniq o'qilgan joyda), bir ta'mni boshqasidan
+ajratmaydi (so'zlari deyarli bir xil) — lekin to'g'ri moslikni buzmaydi.
+
+**To'liq zanjir** (pipeline CPU'da + jonli OCR xizmati):
+
+| Sinov | Tekshiruvsiz | Tekshiruv bilan |
+|---|---|---|
+| Pechenye javoni, "COOKIES" deb tanilgan | 10 (5 to'g'ri, 5 noto'g'ri) | 5 (hammasi to'g'ri); Florida ×2 va Crafers rad, Mini Mango ×2 → brend |
+| Muzlatgich, to'liq katalog, 6864 → 6863 | 16/16, xato 0 | o'zgarmadi, rad 0 |
+| Muzlatgich, to'liq katalog, 6863 → 6864 | 16/18, xato 2 | o'zgarmadi, rad 0 |
+| Muzlatgich, 1 namuna/mahsulot (ikki yo'nalish) | 14/16 xato 1; 15/18 xato 2 | o'zgarmadi, rad 0 |
+
+Muzlatgichdagi 1–2 xato (bir brendning boshqa ta'mi) ushlanmadi; birorta to'g'ri quti rad etilmadi.
+Rad etilgan Florida qutilari notanishlar guruhiga (o'z "Florida" guruhiga) qo'shildi.
+
+**Vaqt.** Band protsessorda (GPU'dagi boshqa ish + shu sinovlar) bir qutini o'qish 2–2.5 s, yirik
+(2600 px) crop 9 s gacha; 12 qutini tekshirish tahlilga 22–31 s qo'shdi. Shuning uchun: (1) faqat bali
+o'z chegarasidan (τ) 0.10 dan kam yuqori bo'lgan qutilar o'qiladi (`ocr.verify_margin`) — pechenye
+javonida 5 ta noto'g'rining hammasi shu oraliqda; muzlatgichda (1 namuna/mahsulot) tekshiruv tahlilga
+22–29 s o'rniga 2–9 s qo'shdi, natija o'zgarmadi; (2) tekshiruv uchun kichik crop (700–900 px) olinadi — brend va nom yirik yoziladi;
+(3) OCR mijoz rasmlarni 4 tadan yuboradi va umumiy vaqt chegarasi bor (`ocr.budget`): avval 12 yirik
+qutili bitta so'rov 60 s dan oshib, natijaning hammasi jim yo'qolardi.
+
+**Cheklovlar.** Namuna yozuvi mahsulot qo'shilganda/qayta o'rganilganda o'qiladi — eski mahsulotlar
+uchun "Qayta o'rganish" kerak (yozuvsiz mahsulot tekshirilmaydi). Yozuvi o'qilmaydigan (burilgan,
+yaltiragan) qutida tekshiruv jim qoladi. Server protsessorida vaqt o'lchanmagan.
+
+**Notanishlar guruhlari.** HDBSCAN guruhlari ilgari ham hisoblanardi, lekin interfeysga chiqmasdi.
+Endi tahlil sahifasida "Katalogda yo'q · N guruh" ro'yxati bor: guruhni bosish hamma qutisini
+tanlaydi, nom berilsa katalogga qo'shiladi. Pechenye javonida 147 qutidan 129 tasi 32 guruhga
+tushdi (Florida 7, Labubu 5, Velona 6+5 …), sharbat javonida 65 qutidan 60 tasi 14 guruhga. Guruhlar
+asosan toza; 2–3 tasida rangi o'xshash boshqa mahsulot aralashgan — operator tanlovni tuzatishi mumkin.
+
+**Rasmni kattalashtirish (qo'shilmadi).** Muzlatgich, kadrlararo, tahlil rasmi o'lchami:
+
+| O'lcham | 1 namuna: 6863→6864 | 1 namuna: 6864→6863 | To'liq: 6863→6864 | To'liq: 6864→6863 | Belgilangan qutidan topildi |
+|---|---|---|---|---|---|
+| 2000 px (joriy) | 14/18, xato 2 | 13/16, xato 1 | 16/18, xato 2 | 16/16 | 21/21; 20/20 |
+| 3000 px | 13/18, xato 1 | 13/16, xato 0 | 16/18, xato 1 | 16/16 | 19/21; 19/20 |
+| 4000 px | 13/18, xato 2 | 13/16, xato 0 | 16/18, xato 1 | 16/16 | 19/21; 17/20 |
+| asl (6048×8064) | 13/18, xato 2 | 13/16, xato 0 | 16/18, xato 1 | 16/16 | 19/21; 17/20 |
+| 2000 px ×2 kattalashtirilgan | 14/18, xato 3 | 13/16, xato 1 | 16/18, xato 2 | 16/16 | 21/21; 18/20 |
+
+To'g'ri tanish o'smaydi, detektor esa bir necha qutini yo'qotadi: detektor rasmni 640/1280 ga,
+embedding modeli har qutini 224 ga keltiradi — qo'shimcha piksel ularga yetib bormaydi. Asl o'lcham
+faqat OCR uchun foydali va u allaqachon asl rasmdan o'qiydi.
+
+**Tahlilni katalogning bir qismi bilan cheklash (hozircha qo'shilmadi).** RP2K, 120 SKU, 25%
+mahsulot katalogda yo'q, xato (noto'g'ri SKU yoki yo'q mahsulotni tanish) 2% bo'ladigan chegarada
+to'g'ri tanilgan ulush (embedding'ning o'zi, 10 ta tasodifiy bo'linish):
+
+| Qamrov | 1 namuna/SKU | 3 namuna | 5 namuna |
+|---|---|---|---|
+| to'liq katalog (90 SKU) | 16.3% | 24.3% | 27.6% |
+| "tur" filtri, ~18 SKU (o'xshashlar ichida qoladi) | 18.2% | 25.3% | 28.5% |
+| "tur" filtri, ~10 SKU | 18.9% | 26.9% | 29.3% |
+| javon assortimenti, 45 SKU | 21.6% | 31.8% | 35.7% |
+| javon assortimenti, 20 SKU | 28.7% | 43.4% | 48.5% |
+| javon assortimenti, 10 SKU | 36.2% | 52.9% | 57.7% |
+
+Mahsulot turi bo'yicha filtr kam beradi (+1–3 punkt): chalkashadigan mahsulotlar bir turga
+kiradi. Javonda aynan qaysi mahsulotlar turishi ma'lum bo'lsa (do'kon assortimenti / planogramma),
+foyda katta (+8…+30 punkt) — chunki chegarani pasaytirish mumkin bo'ladi. Chegarani o'zgartirmasdan
+filtr faqat noto'g'ri mosliklarni kamaytiradi (2.0% → 0.2–1.9%), to'g'ri tanishni deyarli oshirmaydi
+(+0.1…+0.9 punkt). Xato tanlangan ro'yxatda mahsulot "notanish" bo'lib qoladi (0.2–2% noto'g'ri
+moslik). Foyda katalog katta (o'nlab-yuzlab SKU) bo'lgandagina seziladi; do'konga assortiment
+biriktirish alohida ish sifatida qoldirildi.

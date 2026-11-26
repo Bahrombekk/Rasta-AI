@@ -56,6 +56,8 @@ class Match:
     negative_score: Optional[float] = None
     # Yorliqdagi yozuv bo'yicha aniqlashtirilgan bo'lsa — asos bo'lgan so'z ("shaftoli", "0.5 L")
     text: Optional[str] = None
+    # Yorliqdagi yozuv moslikni rad etgan bo'lsa — qadoqda o'qilgan boshqa so'z ("Florida")
+    mismatch: Optional[str] = None
 
 
 @dataclass
@@ -87,6 +89,8 @@ class Detection:
                 d["level"] = self.match.level
             if self.match.text is not None:
                 d["label_text"] = self.match.text
+            if self.match.mismatch is not None:
+                d["label_mismatch"] = self.match.mismatch
             if self.match.candidates:
                 d["top"] = [{"sku_id": c["sku_id"], "score": round(c["score"], 3)}
                             for c in self.match.candidates[:3]]
