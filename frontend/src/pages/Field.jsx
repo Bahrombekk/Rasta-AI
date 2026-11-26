@@ -4,6 +4,7 @@ export default function Field() {
   return (
     <>
       <main className="page workspace-page" data-view="field" id="field">
+          <a className="back-link" id="field-back" hidden></a>
           <div className="work-heading"><div><h1 id="field-title">Tashriflar</h1><p id="field-subtitle"></p></div>
             <div className="page-actions" id="field-actions"></div></div>
           <div className="work-error" id="field-error" role="alert" hidden></div>

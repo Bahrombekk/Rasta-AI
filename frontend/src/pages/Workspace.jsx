@@ -4,6 +4,7 @@ export default function Workspace() {
   return (
     <>
       <main className="page workspace-page" id="workspace">
+          <a className="back-link" id="work-back" hidden></a>
           <div className="work-heading">
             <div><h1 id="work-title">Ish maydoni</h1><p id="work-subtitle"></p></div>
             <div className="page-actions" id="work-actions"></div>

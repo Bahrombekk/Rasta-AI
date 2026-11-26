@@ -18,10 +18,11 @@ export default function mountPage() {
   const status = (text, state) => `<span class="work-tag ${state}">${text}</span>`;
   const summary = (label, value, glyph) => `<div class="field-stat"><span class="metric-icon">${icon(glyph)}</span><strong>${count(value)}</strong><small>${label}</small></div>`;
 
-  function heading(title, description, actions = "") {
+  function heading(title, description, actions = "", back = []) {
     $("field-title").textContent = title;
     $("field-subtitle").textContent = description;
     $("field-actions").innerHTML = actions;
+    rastaBack("field-back", ...back);
     document.title = title + " · Rasta AI";
   }
   function error(message = "") {
@@ -195,7 +196,7 @@ export default function mountPage() {
   async function visitDetail() {
     const visit = await rastaJson(`/api/field/visits/${targetId}`);
     const canWork = !manager && !visit.finished && stores.some(store => store.id === visit.store_id);
-    heading(visit.store, `${visit.agent} · ${rastaDate(visit.started)}`, link("/field", "Tashriflar", "visit"));
+    heading(visit.store, `${visit.agent} · ${rastaDate(visit.started)}`, "", ["/field", "Tashriflar"]);
     const visitTasks = snapshot.tasks.filter(task => task.store_id === visit.store_id && task.status === "pending");
     body.innerHTML = `<div class="field-home">
       <section class="field-current">

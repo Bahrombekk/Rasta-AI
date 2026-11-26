@@ -28,10 +28,11 @@ export default function mountPage() {
     `<div class="work-empty"><span class="metric-icon">${icon(glyph)}</span><strong>${esc(title)}</strong><p>${esc(message)}</p></div>`;
   let session, editorSubmit;
 
-  function heading(title, subtitle, buttons = "") {
+  function heading(title, subtitle, buttons = "", back = []) {
     $("work-title").textContent = title;
     $("work-subtitle").textContent = subtitle;
     actions.innerHTML = buttons;
+    rastaBack("work-back", ...back);
     $("workspace").dataset.view = path.slice(1);
     document.title = title + " · Rasta AI";
   }
@@ -367,7 +368,7 @@ export default function mountPage() {
     const report = await rastaJson(endpoint);
     const result = report.result, summary = result.summary;
     heading(report.store || "Javon auditi", `${report.author} · ${rastaDate(report.submitted || report.created)}`,
-      link(reportsUrl(reportFilters()), "Hisobotlar"));
+      "", [reportsUrl(reportFilters()), "Hisobotlar"]);
     const showReview = session.user.role === "org_admin" && report.status === "submitted";
     const canSend = report.author === session.user.username && ["draft", "returned"].includes(report.status);
     body.innerHTML = `<div class="detail-grid">
@@ -454,9 +455,10 @@ export default function mountPage() {
     }
   }
   async function organizationDetails(org, days = requestedDays()) {
-    heading(org.name, org.active ? "Faol ish maydoni" : "To‘xtatilgan korxona", link("/organizations", "Korxonalar")
-      + link(`/admin?organization=${org.id}`, "Mahsulot katalogi", false, "box")
-      + periodLabel + button("edit-org", "Sozlamalar", "building", false) + button("add-member", "Admin yaratish"));
+    heading(org.name, org.active ? "Faol ish maydoni" : "To‘xtatilgan korxona",
+      link(`/admin?organization=${org.id}`, "Mahsulot katalogi", false, "box")
+      + periodLabel + button("edit-org", "Sozlamalar", "building", false) + button("add-member", "Admin yaratish"),
+      ["/organizations", "Korxonalar"]);
     bindPeriod(days, next => organizationDetails(org, next));
     $("edit-org").onclick = () => openEditor("Korxona sozlamalari", nameField("Korxona nomi") + activeField, async values => {
       await rastaJson(`/api/organizations/${org.id}`, "PATCH", {name:values.name, active: Boolean(values.active)});
@@ -507,8 +509,8 @@ export default function mountPage() {
     const fields = nameField("Do‘kon nomi") + field("Manzil", "address", 'maxlength="200"');
     if (id) {
       const store = rows[0];
-      heading(store.name, store.address || "Do‘kon statistikasi", periodLabel + link(`/stores?days=${days}`, "Do‘konlar")
-        + button("edit-store", "Tahrirlash", "store", false));
+      heading(store.name, store.address || "Do‘kon statistikasi", periodLabel
+        + button("edit-store", "Tahrirlash", "store", false), [`/stores?days=${days}`, "Do‘konlar"]);
       bindPeriod(days, stores);
       const reports = new URLSearchParams({store_id: store.id, from: stats.from, to: stats.to});
       body.innerHTML = `<div class="work-metrics">
