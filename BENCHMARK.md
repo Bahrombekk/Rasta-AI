@@ -463,3 +463,49 @@ CPU, tahlilga +10 ms).
 - Xulosa: foyda katalog katta (20+ SKU) va har SKU'da 3+ real javon qutisi bo'lganda; hozirgi
   kichik, asosan foto-namunali kataloglarda foyda yo'q, notanishni rad etish esa yomonlashishi
   mumkin. Sharti bajarilganda qayta ko'riladi (faqat `src: crop` namunalardan o'rganish bilan).
+
+### 11f. Qadoqdagi yozuvni o'qish — OCR (qo'shilmadi) — 2026-11-26
+Savol: tizim ta'mni ajrata olmagan qutilarda yorliqdagi yozuv yordam beradimi. Ma'lumot: muzlatgichning
+2 kadri, ko'z bilan nomlangan 34 quti (10 mahsulot: Ays Tea ×3, Micco ×4, Наш сад ×3 — bir xil
+shishalar ikki kadrda, ya'ni ~18 ta jismoniy shisha). PaddleOCR 3.7 (PP-OCRv5, `lang="ru"` —
+kirill + lotin), CPU. Matn katalog nomidagi ta'm so'zi bilan solishtirildi (taxminiy moslik, kesilgan
+so'zlar — "shaft…", "…ranate" — ham qabul qilindi; moslash qoidalari natijani ko'rib yozilgan, ya'ni
+OCR foydasiga optimistik).
+
+| OCR | rasm o'lchami | ta'm o'qildi | boshqa ta'm | hajm (15 ta Ays) | vaqt / quti (CPU) |
+|---|---|---|---|---|---|
+| mobile det | asl (6048×8064 dan kesilgan) | 18/34 | 0 | 10/15 | 3.2 s (median 2.5) |
+| mobile det + tarjima sinonimlari | asl | 19/34 | 0 | 10/15 | — |
+| mobile det | prod o'lchami (uzun tomon 2000) | 7/34 | 0 | 2/15 | 0.44 s |
+| mobile det | prod o'lchami ×3 kattalashtirilgan | 11/34 (+tarjima 12) | 0 | 6/15 | 1.2 s |
+| server det + tarjima | asl | 21/34 | 0 | 10/15 | 20–40 s |
+
+Mahsulot bo'yicha (mobile, asl o'lcham): Ays shaftoli 8/8 (4 tasida so'z kesilgan), Micco
+orange-mango 2/2, pomegranate 2/2 ("RANATE"), pear 3/4, Наш сад малина 2/4 (mayda lotincha
+"malina"; qo'lyozma shriftdagi «Малина» o'qilmaydi), Micco kiwi 1/2, Ays o'rmon mevalari 1.25L 1/4,
+0.5L 0/3 (yorlig'i ruscha), Наш сад груша 0/4 (server modeli 2 tasida o'zbekcha "nok"ni o'qidi),
+банан-клубника 0/1.
+
+Joriy tizim bilan birga (kadrlararo; OCR faqat SKU darajasida tanilmagan qutilarda, bir brend ichida):
+
+| Katalog | OCR'siz: to'g'ri / noto'g'ri | OCR bilan (mobile) |
+|---|---|---|
+| har mahsulotdan 1 quti, 6864 → 6863 | 13/16, 1 | 14/16, 1 |
+| har mahsulotdan 1 quti, 6863 → 6864 | 14/18, 2 | 15/18, 2 |
+| kadrdagi hamma qutilar, 6864 → 6863 | 16/16, 0 | 16/16, 0 |
+| kadrdagi hamma qutilar, 6863 → 6864 | 16/18, 2 | 16/18, 2 |
+
+- Tuzatilgani ikkala holatda ham bitta shisha — old tomoni ko'rinib turgan, tizim "brend darajasida"
+  qoldirgan shaftoli. Tizim NOTO'G'RI tanigan qutilar (orqasi bilan turgan o'rmon mevalari → shaftoli,
+  банан-клубника → малина) o'zgarmadi: ularda yorliq yozuvi kadrda ko'rinmaydi. Server modeli hamma
+  qutilarga qo'llanganda yana bittasini tuzatdi (0.5L Ays — "0,5l" hajmi bo'yicha): 16/18 → 17/18.
+- Qo'shni shisha yozuvi: quti chetiga tegib turgan matn tashlanmasa, 2 ta pomegranate qutisida
+  qo'shnining "…ANGO" yozuvi ham o'qiladi (birinchi, sodda moslashda bu ikkalasi orange-mango'ga
+  o'zgarib ketgan).
+- Narxi: asl o'lchamdagi rasm kerak (prod 2000 px ga kichraytiradi — 7/34); noaniq qutiga 2.5–3 s CPU;
+  yangi bog'liqlik (paddlepaddle + paddlex + modellar); yorliq tili katalog nomidan farq qilsa
+  (o'rmon mevalari / лесные ягоды / nok) sinonimlar kerak.
+- Xulosa: yozuv o'qiladigan joyda (old tomoni ko'ringan yorliq) vektor ham odatda to'g'ri ishlaydi;
+  xato bo'ladigan joyda (burilgan, orqa tomon, yaltirash) yozuv ham ko'rinmaydi. Qo'shilmadi.
+  O'lchanmagan: GPU'da vaqt; VLM bilan o'qish (GPU band edi); yassi old tomonli qadoqlar (karton
+  quti, tetrapak) — bu to'plamda faqat dumaloq shishalar.
