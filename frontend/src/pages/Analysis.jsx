@@ -54,6 +54,7 @@ export default function Analysis() {
               <span className="hint" id="zoneHint"></span>
               <span className="sp"></span>
               <button className="btn ghost on" id="boxesBtn" hidden><Icon name="eye" />Belgilar</button>
+              <button className="btn ghost" id="wideBtn" type="button" aria-pressed="false" hidden><Icon name="expand" /><span>Kattalashtirish</span></button>
               <button className="btn ghost" id="newBtn"><Icon name="refresh" />Boshqa rasm</button>
             </div>
             <div className="stage"><canvas id="cv" aria-label="Javon rasmi va tahlil belgilari"></canvas></div>
@@ -115,7 +116,7 @@ export default function Analysis() {
               <section className="card card-pad" id="groupsCard" hidden>
                 <p className="section-title" id="groupsTitle">Katalogda yo‘q</p>
                 <p className="analysis-help" id="groupsHelp"></p>
-                <div className="plist" id="groups"></div>
+                <div className="group-grid" id="groups"></div>
               </section>
               <section className="card card-pad why-card" id="why" hidden>
                 <p className="section-title">Tanlangan mahsulot</p>

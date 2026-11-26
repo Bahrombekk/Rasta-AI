@@ -29,6 +29,8 @@
     exit: '<path d="M11 4H5v16h6m3-4 4-4-4-4m-4 4h8"/>',
     scan: '<path d="M8 4H4v4m12-4h4v4M4 16v4h4m12-4v4h-4M7 12h10"/>',
     "arrow-right": '<path d="M4 12h15m-6-6 6 6-6 6"/>',
+    expand: '<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>',
+    shrink: '<path d="M20 10h-6V4M4 14h6v6M14 10l7-7M3 21l7-7"/>',
     "arrow-left": '<path d="M20 12H5m6-6-6 6 6 6"/>',
     "eye-off": '<path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.6 5.4a9.1 9.1 0 0 1 2.4-.4c5.5 0 9 7 9 7a17 17 0 0 1-2.5 3.4M6.2 6.7A17 17 0 0 0 3 12s3.5 7 9 7a8 8 0 0 0 4.1-1.2"/>',
     chart: '<path d="M4 4v16h16M8 16v-3m4 3V9m4 7V6"/>',

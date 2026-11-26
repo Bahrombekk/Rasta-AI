@@ -326,3 +326,41 @@ def test_sample_words_are_read_when_a_product_is_added():
     images = [np.zeros((300, 200, 3), np.uint8), np.zeros((2400, 1200, 3), np.uint8), np.zeros((10, 10, 3), np.uint8)]
     assert pipe._label_words(images) == ["zarqand", "cookies", "apple"]
     assert len(pipe.label_reader.crops) == 2 and max(pipe.label_reader.crops[1].shape[:2]) == 1600
+
+
+def test_verify_reads_missing_sample_words_on_demand_but_only_a_few_products_at_a_time():
+    image = np.zeros((500, 1000, 3), np.uint8)
+
+    class Old:                                           # OCR ulanmasdan oldin qo'shilgan mahsulotlar
+        def sku_info(self):
+            return {s: {"name": s.upper(), "brand": "ZARQAND", "words": []} for s in ("a", "b", "c", "d")}
+
+    asked = []
+
+    def words_for(sku):
+        asked.append(sku)
+        return list(COOKIES) if sku in ("a", "c") else []
+
+    boxes = [known_box(0.60 + 0.01 * i, 120 * i, sku=s) for i, s in enumerate("abcd")]
+    reader = Reader([[big("Florida")], [big("Florida")]])
+    changed = ocr.verify_with_text(boxes, image, reader, Old(), words_for=words_for, max_fill=3)
+    assert asked == ["a", "b", "c"]                      # eng past balli uchtasi so'raldi, to'rtinchisi emas
+    assert changed == 2 and len(reader.crops) == 2       # yozuvi topilganlar (a, c) tekshirildi, b — hech narsa o'qilmadi
+    assert not boxes[0].match.is_known and not boxes[2].match.is_known
+    assert boxes[1].match.is_known and boxes[3].match.is_known
+
+
+def test_a_silent_reader_is_remembered_and_sample_words_distinguish_failure_from_no_text():
+    reader = ocr.RemoteLabelReader("http://127.0.0.1:9", token="t")
+    assert reader.failed is False
+    assert reader.read([np.zeros((20, 20, 3), np.uint8)]) is None and reader.failed is True
+    from rasta.config import Config
+    from rasta.pipeline import RastaPipeline
+    pipe = RastaPipeline.__new__(RastaPipeline)
+    pipe.cfg = Config.load()
+    pipe.label_reader = Reader(None)
+    image = [np.zeros((300, 200, 3), np.uint8)]
+    assert pipe._label_words(image) is None              # xizmat javob bermadi — keyinroq qayta uriniladi
+    pipe.label_reader = Reader([[]])
+    assert pipe._label_words(image) == []                # javob keldi, lekin rasmda yozuv yo'q
+

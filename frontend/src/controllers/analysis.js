@@ -91,6 +91,14 @@ export default function mountPage() {
       };
     });
   }
+  // Zich javonda rasm kichik bo'lib qoladi: bir bosishda butun kenglikka kattalashtirish
+  $("wideBtn").onclick = () => {
+    const wide = $("work").classList.toggle("wide");
+    $("wideBtn").setAttribute("aria-pressed", String(wide));
+    $("wideBtn").querySelector("span").textContent = wide ? "Kichraytirish" : "Kattalashtirish";
+    $("wideBtn").querySelector("svg").innerHTML = rastaIconPath(wide ? "shrink" : "expand");
+    requestAnimationFrame(() => { draw(); $("work").scrollIntoView({ block: "nearest" }); });
+  };
   $("scopeToggle").onclick = () => {
     const open = $("scopeBody").hidden;
     $("scopeBody").hidden = !open;
@@ -273,7 +281,7 @@ export default function mountPage() {
     sel.clear(); picked = -1;
     $("teach").hidden = true; $("why").hidden = true;
     $("gapLegend").hidden = true;
-    if (R) { R = null; hl = null; $("res").hidden = true; $("pre").hidden = false; $("boxesBtn").hidden = true; }
+    if (R) { R = null; hl = null; $("res").hidden = true; $("pre").hidden = false; $("boxesBtn").hidden = true; $("wideBtn").hidden = true; }
   }
   $("zoneBtn").onclick = () => { resetResult(); drawing = true; pts = []; closed = false; ui(); draw(); };
   $("zoneClear").onclick = () => { resetResult(); drawing = false; pts = []; closed = false; ui(); draw(); };
@@ -387,6 +395,8 @@ export default function mountPage() {
     R = { ...d, data: d, scale, roiPts: d.roi?.map(([x, y]) => [x * scale[0], y * scale[1]]),
           colors: Object.fromEntries(s.products.map(p => [p.sku_id, p.color])) };
     hl = null; hlGroup = null; showBoxes = true; $("boxesBtn").classList.add("on");
+    $("wideBtn").hidden = false;
+    $("scopeBody").hidden = true; $("scopeToggle").textContent = "Tanlash"; $("scopeToggle").setAttribute("aria-expanded", "false");
     groupsUi();
     $("gapLegend").innerHTML = gapLayers
       .filter(({ key }) => d[key]?.length)
@@ -442,6 +452,7 @@ export default function mountPage() {
 
     const notes = [];
     if (canTeach) notes.push(["poly", "Mahsulotni rasmda bosib tanlang va katalogga qo‘shing."]);
+    if (d.label_check === "skipped") notes.push(["alert", "Yozuv o‘qish xizmati javob bermadi — qadoqdagi yozuv bo‘yicha tekshiruv bu tahlilda o‘tkazilmadi. Katalogga o‘xshash, lekin boshqa mahsulotlar tanilgan bo‘lishi mumkin.", "warn"]);
     if (d.scope) notes.push(["info", `Qidiruv faqat tanlangan ${d.scope} ta mahsulot orasidan o‘tkazildi — katalogdagi boshqa mahsulotlar bu tahlilda tanilmaydi.`]);
     if (s.num_variant > 0) notes.push(["info", `${s.num_variant} ta mahsulot katalogdagiga o‘xshaydi, lekin rangi farq qiladi (sariq uzuq ramka) — boshqa ta’m bo‘lishi mumkin. Ustiga bosib ko‘ring.`]);
     if (s.num_unknown > 0) notes.push(["info", `${s.num_unknown} ta mahsulotning SKU’si aniqlanmadi.`]);
@@ -524,19 +535,18 @@ export default function mountPage() {
     $("groupsHelp").textContent = `Bir-biriga o‘xshash ${boxes} ta quti guruhlandi.`
       + (canTeach ? " Guruhni bosing — hamma qutisi tanlanadi, nom bersangiz katalogga qo‘shiladi." : "");
     $("groups").innerHTML = shown.map((list, g) => `
-      <button class="prow group-row" type="button" data-group="${g}">
-        <canvas class="th" width="96" height="96" aria-hidden="true"></canvas>
-        <div style="min-width:0"><div class="nm">O‘xshash mahsulot</div>
-          <div class="sub">${canTeach ? "Tanlash uchun bosing" : "Katalogga qo‘shilmagan"}</div></div>
-        <div class="r"><b>${list.length} ta</b></div>
+      <button class="group-tile" type="button" data-group="${g}" aria-pressed="false"
+        aria-label="O‘xshash mahsulotlar guruhi: ${list.length} ta quti" title="${list.length} ta o‘xshash quti">
+        <canvas width="112" height="112" aria-hidden="true"></canvas><b>${list.length}</b>
       </button>`).join("")
-      + (R.groups.length > shown.length ? `<div class="sub group-more">+ yana ${R.groups.length - shown.length} ta kichik guruh</div>` : "");
+      + (R.groups.length > shown.length ? `<p class="group-more">+ yana ${R.groups.length - shown.length} ta kichik guruh</p>` : "");
     const ratio = img.naturalWidth / R.data.size[0];
     $("groups").querySelectorAll("[data-group]").forEach(row => {
       const g = Number(row.dataset.group), list = R.groups[g];
       const area = i => { const [x1, y1, x2, y2] = R.detections[i].b; return (x2 - x1) * (y2 - y1); };
       const [x1, y1, x2, y2] = R.detections[list.reduce((a, b) => area(b) > area(a) ? b : a)].b.map(v => v * ratio);
       const thumb = row.querySelector("canvas"), side = Math.max(x2 - x1, y2 - y1), fit = thumb.width / side;
+      const paint = thumb.getContext("2d"); paint.fillStyle = "#e8eee9"; paint.fillRect(0, 0, thumb.width, thumb.height);
       const w = (x2 - x1) * fit, h = (y2 - y1) * fit;
       thumb.getContext("2d").drawImage(img, x1, y1, x2 - x1, y2 - y1, (thumb.width - w) / 2, (thumb.height - h) / 2, w, h);
       row.onmouseenter = () => { hlGroup = g; draw(); };
@@ -552,6 +562,10 @@ export default function mountPage() {
   }
   function teachUi() {
     $("teach").hidden = sel.size === 0;
+    document.querySelectorAll("#groups .group-tile").forEach(tile => {   // tanlangan guruhlar belgilanadi
+      const list = R?.groups?.[Number(tile.dataset.group)] || [];
+      tile.setAttribute("aria-pressed", String(list.length > 0 && list.every(i => sel.has(i))));
+    });
     $("teachTitle").textContent = `Tanlangan: ${sel.size} ta mahsulot`;
     $("teachErr").textContent = "";
     if (sel.size === 1 && !products.length) loadProducts();

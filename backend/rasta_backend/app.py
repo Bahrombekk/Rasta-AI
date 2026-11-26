@@ -62,6 +62,7 @@ class State:
     cfg: Optional[Config] = None
     inference: Optional[RemoteInference] = None
     organization_pipes = {}
+    words_tried: set = set()                # namuna yozuvi o'qib ko'rilgan (katalog, SKU) juftlari
     images_dir: Path = ROOT / "data" / "catalog_images"
     archive_dir: Optional[Path] = None      # tahlil qilingan rasmlar arxivi (None — o'chiq)
     public = False      # server tarmoqqa ochiq (0.0.0.0) — parolsiz admin yopiladi
@@ -311,6 +312,33 @@ def add_with_images(pipe, sku: str, name: str, imgs: list, brand: Optional[str],
             p.unlink(missing_ok=True)
             box_file(p).unlink(missing_ok=True)
         raise
+
+
+def sample_label_words(pipe, sku: str) -> list:
+    """Mahsulotning namuna yozuvi katalogda yo'q (OCR ulanishidan oldin qo'shilgan) bo'lsa —
+    saqlangan rasmlardan o'qib katalogga yozadi. Xizmat javob bermasa keyinroq qayta uringan
+    bo'ladi; yozuv topilmasa (rasmda matn yo'q) takror o'qilmaydi."""
+    key = (id(pipe.catalog), sku)
+    if key in State.words_tried:
+        return []
+    from rasta.augment import crop_normalized
+
+    images = []
+    for path in image_files(sku)[:6]:
+        try:
+            with Image.open(path) as image:
+                pixels = np.array(image.convert("RGB"))
+        except (OSError, ValueError):
+            continue
+        located = None if path.stem.startswith("c") else read_box(path)
+        images.append(crop_normalized(pixels, located["box"]) if located and located["box"] else pixels)
+    words = pipe._label_words(images)
+    if words is None:
+        return []
+    State.words_tried.add(key)
+    if words:
+        pipe.catalog.update_sku(sku, words=words)
+    return words
 
 
 def rebuild_sku(pipe, sku: str, name: str, brand: Optional[str], extra: Optional[dict] = None) -> int:
@@ -974,7 +1002,8 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
                 raise HTTPException(400, "Zona noto'g'ri")
         pipe = get_pipe()
         # Yorliq yozuvi uchun asl o'lchamdagi nusxa — faqat OCR ulangan va noaniq quti bo'lsa ochiladi
-        extra = ({"hires": lambda: read_image(upload, OCR_MAX_SIDE)}
+        extra = ({"hires": lambda: read_image(upload, OCR_MAX_SIDE),
+                  "words_for": lambda sku: sample_label_words(pipe, sku)}
                  if getattr(pipe, "label_reader", None) is not None else {})
         scope = None
         with State.lock:
@@ -1004,6 +1033,8 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
                 "size": [int(img.shape[1]), int(img.shape[0])]}
         if scope is not None:
             data["scope"] = len(scope)
+        if res.timings_ms.get("ocr_failed"):
+            data["label_check"] = "skipped"          # yozuv xizmati javob bermadi: tekshiruv o'tkazilmadi
         if workspaces is not None:
             with io.BytesIO() as buf:
                 Image.fromarray(img).save(buf, "JPEG", quality=90)

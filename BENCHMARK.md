@@ -597,8 +597,12 @@ javonida 5 ta noto'g'rining hammasi shu oraliqda; muzlatgichda (1 namuna/mahsulo
 (3) OCR mijoz rasmlarni 4 tadan yuboradi va umumiy vaqt chegarasi bor (`ocr.budget`): avval 12 yirik
 qutili bitta so'rov 60 s dan oshib, natijaning hammasi jim yo'qolardi.
 
-**Cheklovlar.** Namuna yozuvi mahsulot qo'shilganda/qayta o'rganilganda o'qiladi — eski mahsulotlar
-uchun "Qayta o'rganish" kerak (yozuvsiz mahsulot tekshirilmaydi). Yozuvi o'qilmaydigan (burilgan,
+**Cheklovlar.** Namuna yozuvi mahsulot qo'shilganda o'qiladi; eski mahsulotlar uchun birinchi tahlilda
+saqlangan rasmlardan o'zi o'qiladi (bir tahlilda 3 tagacha mahsulot; katalogga yoziladi, qayta o'qilmaydi).
+Ilk bor lokal sinovda tekshiruv ishlamadi: sinov serverida yozuv xizmati o'chiq edi va jimgina
+o'tkazib yuborilgan — endi bunday holatda natijada ogohlantirish chiqadi. Xizmat yoqilgach, eski
+"COOKIES" mahsuloti bilan tahlil: 5 ta to'g'ri quti qoldi, Florida ×2 va Crafers "label", Mini Mango ×2
+"label_brand" deb belgilandi. Yozuvi o'qilmaydigan (burilgan,
 yaltiragan) qutida tekshiruv jim qoladi. Server protsessorida vaqt o'lchanmagan.
 
 **Notanishlar guruhlari.** HDBSCAN guruhlari ilgari ham hisoblanardi, lekin interfeysga chiqmasdi.

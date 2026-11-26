@@ -134,7 +134,7 @@ class RastaPipeline:
             images = [im if b is None else crop_normalized(im, b) for im, b in zip(images, boxes)]
         # Namunadagi yozuv ("o'z so'zlari") katalogda saqlanadi: tahlilda tanilgan quti shu
         # so'zlar bilan tekshiriladi (rasta.ocr.verify_with_text)
-        words = self._label_words(images)
+        words = self._label_words(images) or []
         n_aug = int(self.cfg.get("onboarding.augment", 16) or 0)
         few = len(images) < int(self.cfg.get("onboarding.augment_if_fewer", 2))
         augmented = augment is not False and n_aug > 1 and (augment or few or source == "packshot")
@@ -152,8 +152,9 @@ class RastaPipeline:
         return self.catalog.add_sku(sku_id, name, vecs, extra=payload or None,
                                     colors=cols, aspects=asps)
 
-    def _label_words(self, images: list, limit: int = 6) -> list[str]:
-        """Namuna rasmlarida (mahsulotgacha kesilgan) o'qilgan so'zlar; OCR ulanmagan bo'lsa — []."""
+    def _label_words(self, images: list, limit: int = 6) -> Optional[list[str]]:
+        """Namuna rasmlarida (mahsulotgacha kesilgan) o'qilgan so'zlar. OCR ulanmagan yoki
+        rasmda yozuv yo'q bo'lsa — []; xizmat javob bermasa — None (keyinroq qayta urinish mumkin)."""
         if self.label_reader is None or not images or not self.cfg.get("ocr.enabled", True):
             return []
         from .types import Box
@@ -163,8 +164,10 @@ class RastaPipeline:
             if a.ndim == 3 and min(a.shape[:2]) >= 32:
                 crops.append(label_crop(a[:, :, :3], Box(0, 0, a.shape[1], a.shape[0]), pad=0.0,
                                         min_long=900, max_long=1600))
-        readings = self.label_reader.read(crops) if crops else None
-        return label_words(readings) if readings else []
+        if not crops:
+            return []
+        readings = self.label_reader.read(crops)
+        return None if readings is None else label_words(readings)
 
     # ---- Tahlil ------------------------------------------------------------
 
@@ -178,6 +181,7 @@ class RastaPipeline:
         assume_frontal: bool = False,
         hires=None,
         skus=None,
+        words_for=None,
     ) -> AnalysisResult:
         """skus — qidiruv doirasi: javonda bor deb tanlangan SKU'lar (None — butun katalog).
         detect_image — detektor uchun alternativ rasm (masalan poligon tashqarisi
@@ -284,10 +288,11 @@ class RastaPipeline:
                     detections, image, self.label_reader, self.catalog, hires=original,
                     max_boxes=int(cfg.get("ocr.verify_boxes", 12)), min_conf=min_conf,
                     strong=float(cfg.get("ocr.verify_conf", 0.95)), big=float(cfg.get("ocr.verify_size", 0.05)),
-                    risky=risky)
+                    risky=risky, words_for=words_for, max_fill=int(cfg.get("ocr.verify_fill", 3)))
             t["ocr"] = (time.perf_counter() - t_ocr) * 1000
             t["ocr_fixed"] = fixed
             t["ocr_rejected"] = rejected
+            t["ocr_failed"] = 1.0 if getattr(self.label_reader, "failed", False) else 0.0
 
         # 6. Noma'lumlarni klasterlash
         clusters: dict = {}

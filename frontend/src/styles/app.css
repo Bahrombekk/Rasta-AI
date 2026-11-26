@@ -359,22 +359,60 @@ input[type=file] { display: none; }
   .share { grid-template-columns: 1fr; justify-items: center; }
   .drop { padding: 40px 16px; }
 }
-.group-row { width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
-             grid-template-columns: 48px minmax(0, 1fr) auto; }
-.group-row .th { width: 48px; height: 48px; object-fit: contain; }
-.group-more { padding: 4px 8px; color: var(--muted); font-size: 12.5px; }
+.group-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 8px; }
+.group-tile { position: relative; aspect-ratio: 1; padding: 0; border: 1.5px solid var(--border); border-radius: 12px;
+              overflow: hidden; background: var(--surface-2); cursor: pointer; transition: border-color .12s, box-shadow .12s; }
+.group-tile canvas { display: block; width: 100%; height: 100%; }
+.group-tile b { position: absolute; right: 5px; bottom: 5px; min-width: 24px; padding: 1px 7px; border-radius: 999px;
+                background: rgba(15, 23, 42, .8); color: #fff; font-size: 12.5px; line-height: 1.5; text-align: center; }
+.group-tile:hover, .group-tile:focus-visible { border-color: var(--accent); }
+.group-tile[aria-pressed="true"] { border-color: #10b981; box-shadow: 0 0 0 3px #10b98159; }
+.group-more { grid-column: 1 / -1; margin: 2px 0 0; color: var(--muted); font-size: 12.5px; }
+/* Qidiruv doirasi kartasi */
 .scope-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.scope-head p:last-child { margin: 4px 0 0; color: var(--muted); font-size: 13.5px; }
-.scope-card.on { border-color: var(--warn); }
+.scope-head p:last-child { margin: 4px 0 0; color: var(--muted); font-size: 13.5px; line-height: 1.4; }
+.scope-head .btn { flex: none; }
+.scope-card.on { border-color: var(--warn); box-shadow: 0 0 0 1px var(--warn) inset; }
 .scope-card.on #scopeSummary { color: var(--warn); font-weight: 600; }
 .scope-card .input { width: 100%; margin: 10px 0 8px; }
 .scope-actions { display: flex; gap: 8px; margin-bottom: 6px; }
-.scope-list { max-height: 300px; overflow: auto; margin: 0 -6px; padding: 0 6px; }
-.scope-brand { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px;
+.scope-list { max-height: min(340px, 48vh); overflow: auto; margin: 0 -6px; padding: 0 6px; overscroll-behavior: contain; }
+.scope-brand { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px;
                color: var(--muted); font-size: 12.5px; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; }
-.scope-brand .btn { min-height: 28px; padding: 0 8px; font-size: 12.5px; text-transform: none; letter-spacing: 0; }
+.scope-brand .btn { min-height: 30px; padding: 0 9px; font-size: 12.5px; text-transform: none; letter-spacing: 0; }
 .scope-row { display: grid; grid-template-columns: 20px 36px minmax(0, 1fr); gap: 10px; align-items: center;
              padding: 6px 4px; border-radius: 9px; cursor: pointer; }
 .scope-row:hover { background: var(--surface-2); }
-.scope-row .th { width: 36px; height: 36px; border-radius: 8px; object-fit: cover; background: var(--surface-2); border: 1px solid var(--border); }
+.scope-row .th { width: 36px; height: 36px; border-radius: 8px; object-fit: cover; background: var(--surface-2);
+                 border: 1px solid var(--border); }
 .scope-row .nm { font-size: 14px; font-weight: 550; overflow-wrap: anywhere; }
+.scope-row input, .scope-card input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); }
+
+/* Tahlil sahifasi: kompyuterda rasm ekranda qoladi (yon panel uzun), kerak bo'lsa butun kenglikka ochiladi */
+.stage canvas { max-height: max(320px, calc(100vh - 260px)); }
+@media (min-width: 981px) {
+  .shell + .page .work:not(.wide) .viewer { position: sticky; top: 14px; }
+  .shell + .page .work .side { position: static; }
+}
+.work.wide { grid-template-columns: minmax(0, 1fr); }
+.work.wide .stage canvas { max-height: none; }
+.work.wide .side { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); align-items: start; }
+.work.wide .side > #res { display: contents; }
+@media (max-width: 980px) {
+  #wideBtn { display: none; }
+  .stage canvas { max-height: none; }
+}
+/* Sensorli ekran: barmoq uchun kamida 44 px */
+@media (pointer: coarse) {
+  .scope-row { padding: 10px 6px; grid-template-columns: 24px 40px minmax(0, 1fr); }
+  .scope-row input { width: 22px; height: 22px; }
+  .scope-brand .btn, .scope-actions .btn { min-height: 40px; }
+  .toolbar .btn, .scope-head .btn { min-height: 44px; }
+  .group-grid { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); }
+}
+@media (max-width: 480px) {
+  .scope-head { flex-wrap: wrap; }
+  .scope-head > div { flex: 1 1 60%; }
+  .toolbar { flex-wrap: wrap; }
+  .toolbar .hint { flex-basis: 100%; }
+}

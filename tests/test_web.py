@@ -277,15 +277,16 @@ def test_analysis_offers_the_full_size_image_when_a_label_reader_is_connected(cl
     result = pipe._result(np.zeros((1500, 2000, 3), dtype=np.uint8))
     seen = {}
 
-    def analyze(img, hires=None):
+    def analyze(img, hires=None, words_for=None):
         seen["work"], seen["full"] = img.shape, hires().shape
+        seen["words"] = callable(words_for)
         return result
 
     monkeypatch.setattr(pipe, "analyze_image", analyze)
     monkeypatch.setattr(pipe, "label_reader", object(), raising=False)
     r = client.post("/api/analyze", files={"image": ("s.jpg", jpg(4000, 3000), "image/jpeg")})
     assert r.status_code == 200 and r.json()["size"] == [2000, 1500]
-    assert seen == {"work": (1500, 2000, 3), "full": (3000, 4000, 3)}
+    assert seen == {"work": (1500, 2000, 3), "full": (3000, 4000, 3), "words": True}
     assert client.get("/api/health").json()["ocr"] is True
 
 
@@ -534,3 +535,40 @@ def test_catalog_import_rejects_unsafe_or_broken_bundles(client, tmp_path):
     assert sorted(p.name for p in web.State.images_dir.iterdir()) == ["good"]
     assert not (tmp_path.parent / "x.jpg").exists()
     assert [p["sku_id"] for p in client.get("/api/products").json()["products"]] == ["good"]
+
+
+def test_sample_words_are_read_from_saved_photos_once_and_stored(client):
+    photo = [("files", ("a.jpg", jpg(), "image/jpeg"))]
+    assert client.post("/api/products", data={"name": "Cookies", "brand": "Zarqand"}, files=photo).status_code == 200
+    pipe = web.State.pipe
+    calls = []
+
+    def label_words(images):
+        calls.append(len(images))
+        return None if len(calls) == 1 else ["zarqand", "cookies"]
+
+    pipe._label_words = label_words
+    web.State.words_tried = set()
+    assert web.sample_label_words(pipe, "cookies") == []             # xizmat javob bermadi — belgilanmaydi
+    assert web.sample_label_words(pipe, "cookies") == ["zarqand", "cookies"]
+    assert pipe.catalog.sku_info()["cookies"]["words"] == ["zarqand", "cookies"]
+    assert web.sample_label_words(pipe, "cookies") == [] and calls == [1, 1]   # qayta o'qilmaydi
+
+
+def test_analysis_reports_when_the_label_check_could_not_run(client):
+    from types import SimpleNamespace
+    pipe = web.State.pipe
+    pipe.label_reader = SimpleNamespace(failed=True)
+    original = pipe._result
+
+    def result(img):
+        r = original(img)
+        r.timings_ms = {"ocr_failed": 1.0}
+        return r
+
+    pipe._result = result
+    image = {"image": ("s.jpg", jpg(), "image/jpeg")}
+    assert client.post("/api/analyze", files=image).json()["label_check"] == "skipped"
+    pipe._result = original
+    assert "label_check" not in client.post("/api/analyze", files=image).json()
+

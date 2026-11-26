@@ -245,6 +245,7 @@ class RemoteLabelReader:
         self.session = requests.Session()
         self.session.headers["X-Rasta-AI-Token"] = token or os.environ.get("RASTA_AI_TOKEN", "")
         self._warned = False
+        self.failed = False                      # oxirgi o'qishda xizmat javob bermadimi
 
     def ready(self) -> bool:
         try:
@@ -274,7 +275,9 @@ class RemoteLabelReader:
                     raise ValueError("javob uzunligi mos emas")
                 results.extend(part)
                 self._warned = False
+                self.failed = False
             except Exception as error:               # tarmoq, vaqt tugashi, noto'g'ri javob
+                self.failed = True
                 if not self._warned:
                     print(f"[rasta] OCR xizmati javob bermadi ({type(error).__name__}) — yozuvsiz davom etiladi",
                           file=sys.stderr)
@@ -363,7 +366,7 @@ def refine_with_text(detections, image: np.ndarray, reader, catalog, *, hires=No
 
 def verify_with_text(detections, image: np.ndarray, reader, catalog, *, hires=None,
                      max_boxes: int = 12, min_conf: float = 0.5, strong: float = 0.95,
-                     big: float = 0.05, risky=None) -> int:
+                     big: float = 0.05, risky=None, words_for=None, max_fill: int = 3) -> int:
     """Tanilgan qutilarni yorliq yozuvi bilan tekshirish: qadoqda aniq boshqa so'z turgan
     bo'lsa, moslik bekor qilinadi (yoki faqat brend darajasida qoldiriladi).
 
@@ -372,15 +375,25 @@ def verify_with_text(detections, image: np.ndarray, reader, catalog, *, hires=No
     yaqin balli) qutilar o'qiladi: har qutini o'qish ~2 s turadi, ishonchli mosliklarda esa
     xato deyarli uchramaydi. Katalogda namuna yozuvi saqlanmagan mahsulotlar tekshirilmaydi —
     nomning o'zi bilan solishtirish to'g'ri qutilarni ham rad etardi.
+    `words_for(sku)` berilsa, namuna yozuvi hali saqlanmagan mahsulotlar uchun u chaqiriladi
+    (saqlangan rasmlardan o'qib katalogga yozadi) — bir tahlilda eng ko'pi `max_fill` ta mahsulot:
+    eski mahsulotlarni qo'lda qayta o'rgatish shart emas.
     -> nechta qutining qarori o'zgardi."""
     info = None
     jobs = []
+    filled = 0
     for d in sorted((d for d in detections if d.match is not None and d.match.is_known
                      and d.match.text is None and d.match.sku_id
                      and (risky is None or risky(d.match))), key=lambda d: d.match.score):
         if info is None:
             info = catalog.sku_info()
         entry = info.get(d.match.sku_id) or {}
+        if not entry.get("words") and words_for is not None and filled < max_fill and entry:
+            filled += 1
+            got = words_for(d.match.sku_id)
+            if got:
+                entry = {**entry, "words": got}
+                info[d.match.sku_id] = entry         # shu tahlildagi boshqa qutilar ham foydalansin
         if entry.get("words"):
             own = list(dict.fromkeys(list(entry["words"]) + keywords(entry.get("name") or "", None)
                                      + [w for w in _words(entry.get("brand") or "") if len(w) >= 3]))

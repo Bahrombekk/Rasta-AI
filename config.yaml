@@ -136,6 +136,7 @@ ocr:
   verify: true
   verify_margin: 0.10   # faqat bali chegaradan (τ) shuncha yuqori bo'lgan qutilar o'qiladi
   verify_boxes: 12      # ...ulardan eng past balli shunchasi
+  verify_fill: 3        # namuna yozuvi yo'q mahsulotlardan bir tahlilda eng ko'pi bilan shuncha tasi o'qib saqlanadi
   verify_conf: 0.95     # begona so'z shu ishonchdan past bo'lsa hisobga olinmaydi
   verify_size: 0.05     # ...va harfi quti kichik tomonining shu ulushidan mayda bo'lsa ham
   budget: 60            # bitta o'qish chaqiruviga ajratilgan vaqt, soniya
