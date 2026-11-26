@@ -702,3 +702,32 @@ Natija tekshiruvga ko'ra qutini bosganda ko'rinadi: "Yozuv tekshirildi: qadoqda 
 yoki "yozuv bo'yicha tekshirildi, lekin aniq matn o'qilmadi". Hech narsa yozilmagan quti tekshirilmagan
 (ball yuqori yoki namuna yozuvi yo'q).
 
+### 11h. Noma'lumlarni klasterlashda joylashuvni hisobga olish (qo'shilmadi) — 2026-11-26
+
+Foydalanuvchi g'oyasi: javonda bir xil mahsulot yonma-yon yoki ustma-ust turadi, shuning uchun qo'shni
+o'xshash qutilarni bir guruhga yaqinlashtirish kerak. Sinov: muzlatgichning ikki kadri, katalog bo'sh
+(hamma quti noma'lum), to'g'ri javobi ma'lum 34 quti (10 SKU, kadrda 53 quti); ko'rsatkichlar shu
+34 quti bo'yicha. Qo'shnilik: bir qatorda gorizontal tirqish ≤ 0.5 kenglik yoki x bo'yicha ≥60% ustma-ust
+va vertikal tirqish kichik.
+
+| Usul | Qamrov | Tozalik | ARI |
+|---|---|---|---|
+| joriy (HDBSCAN, joylashuvsiz) | 0.94 | 0.59 | 0.39 |
+| qo'shni juftlar masofasi ×(1−λ), λ=0.5 (yonma-yon + ustma-ust) | 0.97 | 0.70 | 0.52 |
+| ...λ=0.65 yoki 0.8 | 1.00 | 0.47 | 0.24 |
+| faqat yonma-yon, λ=0.5 / 0.65 / 0.8 | 1.00 | 0.68 / 0.65 / 0.59 | 0.48 / 0.44 / 0.38 |
+| faqat ustma-ust, λ=0.5…0.8 | 0.88 | 0.60 | 0.38 |
+| qo'shni orqali birlashuvchi aglomerativ (cheklovli) vs cheklovsiz, t=0.5…0.9 | — | har chegarada teng yoki yomon | har chegarada teng yoki yomon |
+
+Joylashuv bitta sozlamada yaxshilaydi (λ=0.5), yaqin sozlamada (λ≥0.65) esa guruhlar bir-biriga qo'shilib
+tozalik 0.47 ga tushadi; cheklovli klasterlash esa umuman yordam bermadi. Bu barqaror signal emas,
+34 qutida farq 3–4 quti. Ustma-ust turganlar foyda bermadi. Qo'shilmadi.
+
+Boshqa sozlamalar ham sinaldi: HDBSCAN `min_samples`/`min_cluster_size` — foyda yo'q (tozalik 0.47–0.59);
+rang og'irligi 0.6 → 0.8 tozalikni 0.59 → 0.69 ga ko'taradi (ARI 0.44), qamrov o'sha-o'sha; aglomerativ
+(average, t=0.6) tozalik 0.80, ARI 0.60 beradi, lekin qamrov 0.74 ga tushadi (ko'proq quti guruhsiz qoladi).
+Hech biri bepul yaxshilanish emas. Hukm: klasterlash hozirgi holatida qoladi; ishonchli baholash uchun
+ko'proq belgilangan javon (20+ SKU) kerak. Tanilgan qutilar tomonida qo'shni konteksti (ikki bir xil
+tanilgan qo'shni orasidagi chegaradagi noma'lum quti — `smooth_with_context`) allaqachon bor;
+kengroq tarqatish (`propagate_blocks`) ilgari o'lchanib rad etilgan.
+
