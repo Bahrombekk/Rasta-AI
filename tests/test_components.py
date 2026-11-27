@@ -193,6 +193,32 @@ def test_embedding_floor_stops_colour_carrying_a_weak_match():
     assert SkuCatalog.decide(hits, p2, yellow).is_known
 
 
+def test_catalog_reuses_loaded_points_and_refreshes_metadata_after_writes(monkeypatch):
+    catalog = SkuCatalog(dim=2, path=":memory:")
+    vector = np.array([1, 0], dtype=np.float32)
+    catalog.add_sku("juice", "Dena Moxito", vector, extra={"brand": "DENA", "words": ["moxito"]})
+    expected = catalog.sku_info()
+    assert catalog.search(vector)[0].sku_id == "juice"
+
+    def unexpected_read(*args, **kwargs):
+        pytest.fail("Warm catalog must not fetch the same points again")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(catalog.client, "scroll", unexpected_read)
+        patch.setattr(catalog.client, "count", unexpected_read)
+        assert catalog.count() == 1
+        actual = catalog.sku_info()
+        assert actual == expected
+        actual["juice"]["words"].append("external change")
+        assert catalog.sku_info() == expected
+
+    catalog.update_sku("juice", name="Dena Mojito", words=["mojito"])
+    assert catalog.sku_info()["juice"]["words"] == ["mojito"]
+    assert catalog.search(vector)[0].name == "Dena Mojito"
+    catalog.delete_sku("juice")
+    assert catalog.count() == 0 and catalog.sku_info() == {}
+
+
 def test_catalog_inmemory_roundtrip():
     cat = SkuCatalog(dim=4, path=":memory:", collection="t")
     rng = np.random.default_rng(0)

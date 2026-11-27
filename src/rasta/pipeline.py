@@ -27,7 +27,8 @@ from .embedder import build_embedder, crop_boxes
 from .features import aspect_ratio, color_descriptors, to_rgb_array
 from .imageio import load_image
 from .kpi import compute_kpi
-from .ocr import build_label_reader, label_crop, label_words, refine_with_text, verify_with_text
+from .ocr import (build_label_reader, count_brands_with_text, label_crop, label_words, refine_with_text,
+                  verify_with_text)
 from .oos import detect_gaps, verify_gaps
 from .shelf import assign_rows, mark_background_rows, mark_cut_rows, renumber_rows
 from .types import AnalysisResult, Detection
@@ -292,11 +293,20 @@ class RastaPipeline:
                     strong=float(cfg.get("ocr.verify_conf", 0.9)), big=float(cfg.get("ocr.verify_size", 0.05)),
                     letters=int(cfg.get("ocr.verify_letters", 5)),
                     risky=risky, words_for=words_for, max_fill=int(cfg.get("ocr.verify_fill", 3)))
+            counted = 0
+            if cfg.get("ocr.brand_text", True):
+                counted = count_brands_with_text(
+                    detections, image, self.label_reader, self.catalog, hires=original,
+                    max_boxes=int(cfg.get("ocr.brand_boxes", 24)),
+                    strong=float(cfg.get("ocr.brand_conf", 0.85)), big=float(cfg.get("ocr.brand_size", 0.04)))
             t["ocr"] = (time.perf_counter() - t_ocr) * 1000
             t["ocr_fixed"] = fixed
+            t["ocr_branded"] = counted
             t["ocr_rejected"] = rejected
             t["ocr_failed"] = 1.0 if getattr(self.label_reader, "failed", False) else 0.0
             t["ocr_outdated"] = 1.0 if getattr(self.label_reader, "outdated", False) else 0.0
+        elif detections:
+            t["ocr_disabled"] = 1.0
 
         # 6. Noma'lumlarni klasterlash
         clusters: dict = {}

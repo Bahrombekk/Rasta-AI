@@ -325,6 +325,32 @@ def test_variant_difference_ignores_crop_edges_and_ambiguous_evidence():
     assert difference([big("PEAR")]) == ("flavor", "PEAR")
 
 
+def test_shelf_juice_labels_distinguish_mojito_and_pineapple_from_other_flavors():
+    def difference(text, name, brand):
+        return ocr.variant_difference([big(text)], name, brand, strong=0.9, big=0.05)
+
+    assert difference("DENA МОХИТО", "Dena Moxito", "DENA") is None
+    assert difference("DENA МАНГО", "Dena Moxito", "DENA") == ("flavor", "DENA МАНГО")
+    assert difference("ГРАНАТОВЫЙ НЕКТАР", "Dena Moxito", "DENA") == ("flavor", "ГРАНАТОВЫЙ НЕКТАР")
+    assert difference("АНАНАС С МЯКОТЬЮ", "Bliss Ananas", "Bliss") is None
+    assert difference("ЯБЛОКО С МЯКОТЬЮ", "Bliss Ananas", "Bliss") == ("flavor", "ЯБЛОКО С МЯКОТЬЮ")
+    assert difference("ЯБЛОКО C МЯКОТЬЮ", "Bliss Ananas", "Bliss") == ("flavor", "ЯБЛОКО C МЯКОТЬЮ")
+    assert difference("APPLE", "Apple Ananas", "Apple") is None
+    assert difference("С АРБУЗОМ", "Bliss Ananas", "Bliss") == ("flavor", "С АРБУЗОМ")
+    assert difference("СОДЕРЖИТ ЯБЛОКО", "Bliss Ananas", "Bliss") is None
+
+    class Catalog:
+        def sku_info(self):
+            return {"mojito": {"name": "Dena Moxito", "brand": "DENA"}}
+
+    box = known_box(0.99, 0, "mojito")
+    box.match.name, box.match.brand = "Dena Moxito", "DENA"
+    reader = Reader([[big("DENA"), big("АПЕЛЬСИН")]])
+    assert ocr.verify_with_text([box], np.zeros((500, 500, 3), np.uint8), reader, Catalog(),
+                                risky=lambda match: False) == 1
+    assert not box.match.is_known and box.match.mismatch_kind == "flavor"
+
+
 def test_generic_family_keeps_same_brand_flavor_but_rejects_foreign_label():
     class FamilyCatalog:
         def sku_info(self):
@@ -503,3 +529,77 @@ def test_judge_counts_a_dominant_foreign_title_even_when_it_is_short_and_not_ful
     assert ocr.judge([big("Ay", 0.99, 0.44), big("bilan", 0.98, 0.059)], ["ays", "tea", "bilan"], "Ays Tea")[0] == "support"
     # yirik, lekin ishonchi past parcha hisobga olinmaydi
     assert ocr.judge([big("mic", 0.7, 0.337)], ["ays", "tea"], "Ays Tea")[0] == "silent"
+    # Kirill nomli mahsulotda «Наш сад» «Hau» deb o'qilsa ham to'g'ri quti rad etilmaydi; «new» — umumiy so'z
+    cyrillic = ["наш", "сад", "малина"]
+    assert ocr.judge([big("Hau", 0.97, 0.32)], cyrillic, "Наш сад")[0] == "silent"
+    assert ocr.judge([big("new", 0.99, 0.3)], ["ays", "tea"], "Ays Tea")[0] == "silent"
+
+
+
+def test_brand_family_accepts_other_flavours_and_the_makers_name_but_still_rejects_a_foreign_brand():
+    class Family:
+        def sku_info(self):
+            return {"bliss": {"name": "Bliss", "brand": "Bliss", "words": ["bliss", "kahectbo"]}}
+
+    def box(x, reading):
+        item = known_box(0.8, x, "bliss")
+        item.match.family = True
+        return item, reading
+
+    brand = [big("Bliss", 1.0, 0.5), big("AGROMIR", 1.0, 0.09)]
+    cases = [box(0, brand), box(150, brand), box(300, [big("AGROMIR", 1.0, 0.08), big("AHAHAC", 1.0, 0.11)]),
+             box(450, [big("AGROMIR", 1.0, 0.08), big("LSI", 0.9, 0.27)]),
+             box(600, [big("AGROMIR", 1.0, 0.08), big("Florida", 1.0, 0.2)])]
+    boxes = [item for item, _ in cases]
+    reader = Reader([reading for _, reading in cases])
+    image = np.zeros((500, 750, 3), np.uint8)
+    assert ocr.verify_with_text(boxes, image, reader, Family(), risky=lambda match: True) == 1
+    assert [b.match.is_known for b in boxes] == [True, True, True, True, False]
+    assert boxes[4].match.mismatch == "Florida"            # boshqa brend nomi — rad etiladi
+    assert boxes[2].match.checked == "silent"              # ta'm so'zi («ananas») begona emas, ishlab chiqaruvchi nomi umumiy
+
+
+def test_a_word_shared_by_the_confirmed_boxes_is_not_foreign_on_the_others():
+    class Catalog:
+        def sku_info(self):
+            return {"cookies": {"name": "COOKIES", "brand": "ZARQAND", "words": ["zarqand", "cookies"]}}
+
+    def readings(extra):
+        return [big("Cookies", 1.0, 0.2), big("AGROMIR", 1.0, 0.09)] + extra
+
+    boxes = [known_box(0.8, x, "cookies") for x in (0, 150, 300, 450)]
+    reader = Reader([readings([]), readings([]), [big("AGROMIR", 1.0, 0.09)], [big("Florida", 1.0, 0.2), big("AGROMIR", 1.0, 0.09)]])
+    assert ocr.verify_with_text(boxes, np.zeros((500, 750, 3), np.uint8), reader, Catalog(), risky=lambda m: True) == 1
+    assert [b.match.is_known for b in boxes] == [True, True, True, False]
+
+
+def test_brand_from_text_needs_one_clearly_printed_catalog_brand():
+    brands = ["Bliss", "Ays Tea", "DENA"]
+    assert ocr.brand_from_text([big("Bliss", 1.0, 0.5)], brands) == "Bliss"
+    assert ocr.brand_from_text([big("Blis", 0.9, 0.42)], brands) == "Bliss"             # OCR xatosi
+    assert ocr.brand_from_text([big("Ays", 0.99, 0.44), big("Tea", 1.0, 0.1)], brands) == "Ays Tea"
+    assert ocr.brand_from_text([big("Tea", 1.0, 0.1)], brands) is None                  # brendning asosiy so'zi yo'q
+    assert ocr.brand_from_text([big("Bliss", 0.6, 0.5)], brands) is None                # ishonch past
+    assert ocr.brand_from_text([big("Bliss", 1.0, 0.02)], brands) is None               # mayda yozuv
+    assert ocr.brand_from_text([[*line("Bliss", 1.0, x1=0.0), 0.4]], brands) is None    # chetga tegib turgan matn
+    assert ocr.brand_from_text([big("Bliss", 1.0, 0.5), big("DENA", 1.0, 0.4)], brands) is None   # ikki brend — noaniq
+
+
+def test_unrecognised_boxes_are_counted_for_the_brand_printed_on_them():
+    class Catalog:
+        def sku_info(self):
+            return {"b": {"name": "Bliss", "brand": "Bliss", "words": []}}
+
+    def unknown(x, height=300):
+        return Detection(box=Box(x, 100, x + 100, 100 + height), match=Match(None, None, 0.5, 0.0, False, []))
+
+    named, other, tiny, rejected = unknown(0), unknown(150), unknown(300, 80), unknown(450)
+    rejected.match = Match(None, None, 0.7, 0.0, False, [], mismatch="Florida")
+    known = known_box(0.9, 600, "b")
+    reader = Reader([[big("Bliss", 1.0, 0.5)], [big("Florida", 1.0, 0.3)]])
+    assert ocr.count_brands_with_text([named, other, tiny, rejected, known], np.zeros((500, 750, 3), np.uint8),
+                                      reader, Catalog()) == 1
+    assert (named.match.level, named.match.brand, named.match.checked) == ("brand", "Bliss", "brand:Bliss")
+    assert other.match.level is None and tiny.match.level is None and rejected.match.mismatch == "Florida"
+    assert len(reader.crops) == 2 and known.match.is_known                # mayda, rad etilgan va tanilgan qutilar o'qilmaydi
+    assert ocr.count_brands_with_text([unknown(0)], np.zeros((500, 750, 3), np.uint8), Reader(None), Catalog()) == 0

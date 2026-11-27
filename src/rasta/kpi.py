@@ -56,11 +56,14 @@ def compute_kpi(
     brand_only = [d for d in detections if d.match and not d.match.is_known
                   and d.match.level in ("brand", "variant") and d.match.brand]
     variants = [d for d in detections if d.match and d.match.level == "variant"]
+    other_flavors = sum(1 for d in detections if d.match and not d.match.is_known
+                        and d.match.mismatch_kind == "flavor")
     if brand_of or brand_only or any(d.match.brand for d in known):
         brand_of = brand_of or {}
         b_facings: dict[str, int] = defaultdict(int)
         b_area: dict[str, float] = defaultdict(float)
         unresolved: dict[str, int] = defaultdict(int)
+        other_flavors_by_brand: dict[str, int] = defaultdict(int)
         brand_skus: dict[str, set[str]] = defaultdict(set)
         names: dict[str, str] = {}
         for d in known:
@@ -78,11 +81,14 @@ def compute_kpi(
             b_facings[brand] += 1
             b_area[brand] += d.box.area
             unresolved[brand] += 1
+            if d.match.mismatch_kind == "flavor":
+                other_flavors_by_brand[brand] += 1
         brand_share = {
             b: {
                 "facings": b_facings[b],
                 "share_pct": round(100.0 * b_area[b] / total_area, 2),
                 "unresolved_facings": unresolved[b],
+                "other_flavor_facings": other_flavors_by_brand[b],
                 "sku_ids": sorted(brand_skus[b]),
             }
             for b in sorted(b_facings, key=lambda x: b_area[x], reverse=True)
@@ -101,6 +107,7 @@ def compute_kpi(
         "num_unknown": unknown,
         "num_brand_only": len(brand_only),
         "num_variant": len(variants),
+        "num_other_flavor": other_flavors,
         "num_variant_no_brand": sum(1 for d in variants if not d.match.brand),
         "recognition_rate_pct": round(100.0 * len(known) / total, 1) if total else 0.0,
         "num_rows": num_rows,

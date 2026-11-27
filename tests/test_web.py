@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
-from PIL import Image  # noqa: E402
+from PIL import Image, ImageOps  # noqa: E402
 
 from rasta.catalog import SkuCatalog  # noqa: E402
 from rasta.kpi import compute_kpi  # noqa: E402
@@ -80,6 +80,44 @@ def test_pages_served(client):
         assert page.status_code == 200
         assert '<div id="root"></div>' in page.text
     assert client.get("/static/login-shelf.webp").status_code == 200
+
+
+def test_busy_analysis_returns_immediately_without_queuing(client):
+    files = {"image": ("shelf.jpg", jpg(), "image/jpeg")}
+    with web.State.analysis_lock:
+        response = client.post("/api/analyze", files=files)
+        assert response.status_code == 503
+        assert "Birozdan keyin" in response.json()["detail"]
+        assert client.get("/api/health").status_code == 200
+    assert client.post("/api/analyze", files=files).status_code == 200
+
+
+def test_analysis_separates_confirmed_other_flavors_from_exact_skus(client, monkeypatch):
+    detections = [
+        Detection(Box(10, 10, 30, 90), Match("mojito", "Dena Moxito", 0.9, 0.2, True, brand="DENA", level="sku")),
+        Detection(Box(35, 10, 55, 90), Match("mojito", "Dena Moxito", 0.8, 0.2, False,
+                                             brand="DENA", level="brand", mismatch="МАНГО", mismatch_kind="flavor")),
+        Detection(Box(60, 10, 80, 90), Match(None, None, 0.8, 0.2, False, brand="DENA", level="brand")),
+        Detection(Box(85, 10, 105, 90), Match("pineapple", "Bliss Ananas", 0.8, 0.2, False,
+                                              mismatch="ЯБЛОКО", mismatch_kind="flavor")),
+    ]
+
+    def result(img):
+        return AnalysisResult("x", (img.shape[1], img.shape[0]), detections, [], 1,
+                              compute_kpi(detections, [], 1), timings_ms={"ocr_disabled": 1.0})
+
+    monkeypatch.setattr(web.State.pipe, "analyze_image", result)
+    response = client.post("/api/analyze", files={"image": ("shelf.jpg", jpg(), "image/jpeg")})
+    assert response.status_code == 200
+    data = response.json()
+    summary = data["summary"]
+    assert data["label_check"] == "disabled"
+    assert summary["num_other_flavor"] == 2
+    assert summary["products"][0]["facings"] == 1
+    assert summary["brands"][0]["facings"] == 3
+    assert summary["brands"][0]["unresolved_facings"] == 2
+    assert summary["brands"][0]["other_flavor_facings"] == 1
+    assert [d.get("other_flavor", False) for d in data["detections"]] == [False, True, False, True]
 
 
 def test_catalog_metadata_survives_photo_changes_and_reindex(client):
@@ -272,10 +310,40 @@ def test_analysis_keeps_uncertain_gaps_out_of_oos_total(client, monkeypatch):
     assert data["summary"]["oos_status"] == "limited_scene"
 
 
+@pytest.mark.parametrize("mode,fmt,orientation", [("RGB", "JPEG", 6), ("L", "PNG", 1), ("RGBA", "PNG", 1)])
+def test_shared_image_decode_preserves_exact_resolution_and_pixels(mode, fmt, orientation):
+    colors = np.random.default_rng(42).integers(0, 256, (53, 97, 3), dtype=np.uint8)
+    photo = Image.fromarray(colors).convert(mode)
+    exif = photo.getexif()
+    exif[274] = orientation
+    with io.BytesIO() as buf:
+        photo.save(buf, fmt, exif=exif)
+        payload = buf.getvalue()
+
+    def original(max_side):
+        with Image.open(io.BytesIO(payload)) as im:
+            reference = ImageOps.exif_transpose(im).convert("RGB")
+            reference.thumbnail((max_side, max_side), Image.LANCZOS)
+            return np.array(reference)
+
+    with web.decode_image(payload) as decoded:
+        with decoded.copy() as work_image:
+            np.testing.assert_array_equal(web.image_pixels(work_image, 33), original(33))
+        np.testing.assert_array_equal(web.image_pixels(decoded, 70), original(70))
+
+
 def test_analysis_offers_the_full_size_image_when_a_label_reader_is_connected(client, monkeypatch):
     pipe = web.State.pipe
     result = pipe._result(np.zeros((1500, 2000, 3), dtype=np.uint8))
     seen = {}
+    decode_image = web.decode_image
+    decodes = []
+
+    def tracked_decode(payload):
+        decodes.append(len(payload))
+        return decode_image(payload)
+
+    monkeypatch.setattr(web, "decode_image", tracked_decode)
 
     def analyze(img, hires=None, words_for=None):
         seen["work"], seen["full"] = img.shape, hires().shape
@@ -287,6 +355,7 @@ def test_analysis_offers_the_full_size_image_when_a_label_reader_is_connected(cl
     r = client.post("/api/analyze", files={"image": ("s.jpg", jpg(4000, 3000), "image/jpeg")})
     assert r.status_code == 200 and r.json()["size"] == [2000, 1500]
     assert seen == {"work": (1500, 2000, 3), "full": (3000, 4000, 3), "words": True}
+    assert len(decodes) == 1
     assert client.get("/api/health").json()["ocr"] is True
 
 
@@ -576,3 +645,10 @@ def test_analysis_reports_when_the_label_check_could_not_run(client):
     pipe._result = original
     assert "label_check" not in client.post("/api/analyze", files=image).json()
 
+
+
+def test_explanation_for_a_brand_found_on_the_label_even_without_a_catalog_candidate():
+    from rasta.catalog import RecognitionParams
+    box = Detection(box=Box(0, 0, 10, 10), match=Match(None, None, 0.0, 0.0, False, [], brand="Bliss",
+                                                       level="brand", checked="brand:Bliss"))
+    assert web.explain(box, RecognitionParams()) == {"r": "brand_text", "w": "Bliss"}

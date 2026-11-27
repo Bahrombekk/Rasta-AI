@@ -59,6 +59,7 @@ organization_scope: ContextVar[int | None] = ContextVar("organization_scope", de
 class State:
     pipe = None
     lock = threading.Lock()
+    analysis_lock = threading.Lock()
     cfg: Optional[Config] = None
     inference: Optional[RemoteInference] = None
     organization_pipes = {}
@@ -66,6 +67,16 @@ class State:
     images_dir: Path = ROOT / "data" / "catalog_images"
     archive_dir: Optional[Path] = None      # tahlil qilingan rasmlar arxivi (None — o'chiq)
     public = False      # server tarmoqqa ochiq (0.0.0.0) — parolsiz admin yopiladi
+
+
+async def analysis_slot():
+    if not State.analysis_lock.acquire(blocking=False):
+        raise HTTPException(503, "Hozir boshqa javon rasmi tahlil qilinmoqda. Birozdan keyin qayta urinib ko‘ring.",
+                            headers={"Retry-After": "2"})
+    try:
+        yield
+    finally:
+        State.analysis_lock.release()
 
 
 def _base_pipe():
@@ -116,7 +127,7 @@ def images_root():
 ARCHIVE_MIN_FREE = 5 * 1024 ** 3     # diskda shundan kam joy qolsa arxivlash to'xtaydi
 
 
-def archive_analysis(upload: bytes, img: np.ndarray, result) -> None:
+def archive_analysis(upload: bytes, img: np.ndarray, result, image_jpeg: bytes | None = None) -> None:
     """Tahlil qilingan rasmni va detektor qutilarini arxivga yozadi — keyinchalik o'z
     rasmlarimizda kuchliroq (va tijoriy litsenziyali) detektor o'qitish uchun.
 
@@ -137,7 +148,10 @@ def archive_analysis(upload: bytes, img: np.ndarray, result) -> None:
         name = hashlib.sha1(upload).hexdigest()[:16]
         photo = folder / f"{name}.jpg"
         if not photo.exists():
-            Image.fromarray(img).save(photo, "JPEG", quality=90)
+            if image_jpeg is None:
+                Image.fromarray(img).save(photo, "JPEG", quality=90)
+            else:
+                photo.write_bytes(image_jpeg)
         detections = list(result.detections) + list(result.background)
         try:
             image_ref = str(photo.relative_to(ROOT)).replace("\\", "/")
@@ -178,22 +192,32 @@ def read_upload(f: UploadFile) -> bytes:
     return data
 
 
-def read_image(data: bytes, max_side: int = MAX_SIDE) -> np.ndarray:
+def decode_image(data: bytes) -> Image.Image:
     if len(data) > MAX_BYTES:
         raise HTTPException(413, "Rasm juda katta (20 MB dan ko'p)")
-    try:
-        im = Image.open(io.BytesIO(data))       # faqat sarlavha o'qiladi
-    except Exception:
-        raise HTTPException(400, "Rasmni o'qib bo'lmadi")
-    if im.width * im.height > MAX_PIXELS:
-        raise HTTPException(413, "Rasm o'lchami juda katta")
-    try:
-        im = ImageOps.exif_transpose(im).convert("RGB")    # telefon rasmi burilishi
-    except Exception:
-        raise HTTPException(400, "Rasmni o'qib bo'lmadi")
+    with io.BytesIO(data) as stream:
+        try:
+            im = Image.open(stream)
+        except Exception:
+            raise HTTPException(400, "Rasmni o'qib bo'lmadi")
+        if im.width * im.height > MAX_PIXELS:
+            raise HTTPException(413, "Rasm o'lchami juda katta")
+        try:
+            ImageOps.exif_transpose(im, in_place=True)
+            return im if im.mode == "RGB" else im.convert("RGB")
+        except Exception:
+            raise HTTPException(400, "Rasmni o'qib bo'lmadi")
+
+
+def image_pixels(im: Image.Image, max_side: int) -> np.ndarray:
     if max(im.size) > max_side:
         im.thumbnail((max_side, max_side), Image.LANCZOS)
     return np.array(im)
+
+
+def read_image(data: bytes, max_side: int = MAX_SIDE) -> np.ndarray:
+    with decode_image(data) as im:
+        return image_pixels(im, max_side)
 
 
 def slug(s: str) -> str:
@@ -388,6 +412,9 @@ def explain(d, params) -> dict:
     n — eng yaqin mahsulot, sc — o'xshashlik, tau — chegara, m — 2-nomzoddan farq.
     """
     m = d.match
+    if m is not None and not m.is_known and m.level == "brand" and (m.checked or "").startswith("brand:"):
+        # brend qadoqdagi yozuvdan topildi (katalogdan mos nomzod bo'lmasligi ham mumkin); w — brend
+        return {"r": "brand_text", "w": m.brand or m.checked[6:]}
     top = m.candidates[0] if (m is not None and m.candidates) else None
     if top is None:
         return {"r": "empty"}
@@ -442,6 +469,8 @@ def geometry(result, params=None) -> dict:
             "s": m.sku_id if (m and m.is_known) else None,
             "brand": m.brand if (m and m.level == "brand") else None,
         }
+        if m and not m.is_known and m.mismatch_kind == "flavor":
+            item["other_flavor"] = True
         if m and m.level == "variant" and m.candidates:
             item["v"] = m.candidates[0].get("sku_id")      # shunga o'xshaydi, rangi boshqa
         if item["s"] is None and d.cluster >= 0:
@@ -472,6 +501,7 @@ def summarize(result, colors: dict[str, str]) -> dict:
         for sku, info in k["share_of_shelf"].items()]
     brands = [{"brand": b, "facings": v["facings"], "share_pct": v["share_pct"],
                "unresolved_facings": v.get("unresolved_facings", 0),
+               "other_flavor_facings": v.get("other_flavor_facings", 0),
                "products": [p for p in products if p["sku_id"] in v.get("sku_ids", ())]}
               for b, v in k.get("brand_share", {}).items() if b != "?"]
     known_share = sum(p["share_pct"] for p in products)
@@ -481,6 +511,7 @@ def summarize(result, colors: dict[str, str]) -> dict:
         "num_known": k["num_known"],
         "num_unknown": k["num_unknown"] - k.get("num_brand_only", 0) - k.get("num_variant_no_brand", 0),
         "num_variant": k.get("num_variant", 0),
+        "num_other_flavor": k.get("num_other_flavor", 0),
         "recognition_rate": k["recognition_rate_pct"],
         "fill_pct": k.get("roi_shelf_fill_pct"),
         "area_fill_pct": k.get("roi_fill_pct"),
@@ -974,7 +1005,7 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
         out.sort(key=lambda r: ((r.get("brand") or "").lower(), r["name"].lower()))
         return {"products": out}
 
-    @app.post("/api/analyze")
+    @app.post("/api/analyze", dependencies=[Depends(analysis_slot)])
     def analyze(request: Request, image: UploadFile = File(...), roi: str = Form(""),
                 roi_normalized: bool = Form(False), visit_id: int | None = Form(None, gt=0),
                 skus: str = Form("")):
@@ -987,57 +1018,71 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
             if visit is None:
                 raise HTTPException(404, "Ochiq tashrif topilmadi.")
         upload = read_upload(image)
-        img = read_image(upload)
-        region = None
-        if roi.strip():
-            from rasta.roi import make_region
-            try:
-                points = np.asarray(json.loads(roi), dtype=float)
-                if (points.ndim != 2 or points.shape[1] != 2 or not 3 <= len(points) <= 100
-                        or not np.isfinite(points).all()):
-                    raise ValueError
-                h, w = img.shape[:2]
-                if roi_normalized:
-                    points = points * [w, h]
-                if (points < 0).any() or (points > [w, h]).any():
-                    raise ValueError
-                # A polygon with zero area cannot be analyzed or rectified.
-                x, y = points.T
-                area = abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1))) / 2
-                if area < 1:
-                    raise ValueError
-                region = make_region(points, "Zona")
-            except (ValueError, TypeError, OverflowError):
-                raise HTTPException(400, "Zona noto'g'ri")
-        pipe = get_pipe()
-        # Yorliq yozuvi uchun asl o'lchamdagi nusxa — faqat OCR ulangan va noaniq quti bo'lsa ochiladi
-        extra = ({"hires": lambda: read_image(upload, OCR_MAX_SIDE),
-                  "words_for": lambda sku: sample_label_words(pipe, sku)}
-                 if getattr(pipe, "label_reader", None) is not None else {})
-        scope = None
-        with State.lock:
-            if skus.strip():
-                # Qidiruv doirasi: javonda bor deb tanlangan mahsulotlar. Katalogdan o'chirilgan SKU'lar
-                # e'tiborga olinmaydi; birortasi ham qolmasa — xato (jimgina butun katalogga o'tmaymiz).
+        with decode_image(upload) as decoded:
+            roi_requested = bool(roi.strip())
+            pipe = None if roi_requested else get_pipe()
+            hires_needed = pipe is not None and getattr(pipe, "label_reader", None) is not None
+            if hires_needed and max(decoded.size) > MAX_SIDE:
+                with decoded.copy() as work_image:
+                    img = image_pixels(work_image, MAX_SIDE)
+            else:
+                img = image_pixels(decoded, MAX_SIDE)
+            region = None
+            if roi_requested:
+                from rasta.roi import make_region
                 try:
-                    wanted = json.loads(skus)
-                    if (not isinstance(wanted, list) or len(wanted) > 5000
-                            or not all(isinstance(item, str) and len(item) <= 200 for item in wanted)):
+                    points = np.asarray(json.loads(roi), dtype=float)
+                    if (points.ndim != 2 or points.shape[1] != 2 or not 3 <= len(points) <= 100
+                            or not np.isfinite(points).all()):
                         raise ValueError
-                except ValueError:
-                    raise HTTPException(400, "Mahsulotlar ro'yxati noto'g'ri")
-                catalog_skus = set(pipe.catalog.sku_info())
-                scope = sorted(set(wanted) & catalog_skus)
-                if not scope:
-                    raise HTTPException(400, "Tanlangan mahsulotlar katalogda topilmadi")
-                if len(scope) == len(catalog_skus):
-                    scope = None                     # hammasi tanlangan — cheklov yo'q
-            if scope is not None:
-                extra["skus"] = scope
-            res = (pipe.analyze_region(img, region, **({"skus": scope} if scope is not None else {}))
-                   if region is not None else pipe.analyze_image(img, **extra))
-            summary = summarize(res, color_map(res))
-        archive_analysis(upload, img, res)
+                    h, w = img.shape[:2]
+                    if roi_normalized:
+                        points = points * [w, h]
+                    if (points < 0).any() or (points > [w, h]).any():
+                        raise ValueError
+                    # A polygon with zero area cannot be analyzed or rectified.
+                    x, y = points.T
+                    area = abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1))) / 2
+                    if area < 1:
+                        raise ValueError
+                    region = make_region(points, "Zona")
+                except (ValueError, TypeError, OverflowError):
+                    raise HTTPException(400, "Zona noto'g'ri")
+            if pipe is None:
+                pipe = get_pipe()
+            extra = {}
+            if hires_needed:
+                extra["hires"] = lambda: image_pixels(decoded, OCR_MAX_SIDE)
+                extra["words_for"] = lambda sku: sample_label_words(pipe, sku)
+            scope = None
+            with State.lock:
+                if skus.strip():
+                    # Qidiruv doirasi: javonda bor deb tanlangan mahsulotlar. Katalogdan o'chirilgan SKU'lar
+                    # e'tiborga olinmaydi; birortasi ham qolmasa — xato (jimgina butun katalogga o'tmaymiz).
+                    try:
+                        wanted = json.loads(skus)
+                        if (not isinstance(wanted, list) or len(wanted) > 5000
+                                or not all(isinstance(item, str) and len(item) <= 200 for item in wanted)):
+                            raise ValueError
+                    except ValueError:
+                        raise HTTPException(400, "Mahsulotlar ro'yxati noto'g'ri")
+                    catalog_skus = set(pipe.catalog.sku_info())
+                    scope = sorted(set(wanted) & catalog_skus)
+                    if not scope:
+                        raise HTTPException(400, "Tanlangan mahsulotlar katalogda topilmadi")
+                    if len(scope) == len(catalog_skus):
+                        scope = None                     # hammasi tanlangan — cheklov yo'q
+                if scope is not None:
+                    extra["skus"] = scope
+                res = (pipe.analyze_region(img, region, **({"skus": scope} if scope is not None else {}))
+                       if region is not None else pipe.analyze_image(img, **extra))
+                summary = summarize(res, color_map(res))
+        report_image = None
+        if workspaces is not None:
+            with io.BytesIO() as buf:
+                Image.fromarray(img).save(buf, "JPEG", quality=90)
+                report_image = buf.getvalue()
+        archive_analysis(upload, img, res, report_image)
         data = {"summary": summary, **geometry(res, getattr(pipe, "params", None)),
                 "size": [int(img.shape[1]), int(img.shape[0])]}
         if scope is not None:
@@ -1046,16 +1091,16 @@ def create_app(cfg: Optional[Config] = None, public: bool = False, *,
             data["label_check"] = "skipped"          # yozuv xizmati javob bermadi: tekshiruv o'tkazilmadi
         elif res.timings_ms.get("ocr_outdated"):
             data["label_check"] = "outdated"         # xizmat eski: harf o'lchamini qaytarmaydi, tekshiruv ishlamaydi
+        elif res.timings_ms.get("ocr_disabled"):
+            data["label_check"] = "disabled"
         if workspaces is not None:
-            with io.BytesIO() as buf:
-                Image.fromarray(img).save(buf, "JPEG", quality=90)
-                if visit is not None:
-                    data["visit_id"] = visit_id
-                    data["visit_store_id"] = visit["store_id"]
-                try:
-                    data["report_id"] = workspaces.create_draft(user, data, buf.getvalue(), visit_id if visit is not None else None)
-                except ValueError as exc:
-                    raise HTTPException(400, str(exc)) from exc
+            if visit is not None:
+                data["visit_id"] = visit_id
+                data["visit_store_id"] = visit["store_id"]
+            try:
+                data["report_id"] = workspaces.create_draft(user, data, report_image, visit_id if visit is not None else None)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
         return JSONResponse(data)
 
     @app.get("/api/health")

@@ -137,11 +137,15 @@ ocr:
   verify: true
   verify_margin: 0.25   # faqat bali chegaradan (τ) shuncha yuqori bo'lgan qutilar o'qiladi (0.25 — deyarli hammasi)
   verify_boxes: 12      # ...ulardan eng past balli shunchasi
-  verify_fill: 3        # namuna yozuvi yo'q mahsulotlardan bir tahlilda eng ko'pi bilan shuncha tasi o'qib saqlanadi
+  brand_text: true      # tanilmagan qutida katalogdagi brend nomi yozilgan bo'lsa — shu brendga sanaladi
+  brand_boxes: 24       # ...shunday o'qiladigan qutilar soni (kattalari birinchi)
+  brand_conf: 0.85      # brend yozuvining eng kam ishonchi
+  brand_size: 0.04      # ...va harfining quti kichik tomoniga nisbati
+  verify_fill: 3        # tahlil davomida namuna yozuvi o‘qiladigan eski SKU'lar soni
   verify_conf: 0.9      # begona yozuv shu ishonchdan past bo'lsa hisobga olinmaydi
   verify_letters: 5     # ...bitta 4+ harfli so'z yoki yirik parchalarning jami shuncha harfi
   verify_size: 0.05     # ...va harfi quti kichik tomonining shu ulushidan mayda bo'lsa ham
-  budget: 60            # bitta o'qish chaqiruviga ajratilgan vaqt, soniya
+  budget: 60            # alohida OCR chaqiruvi uchun eng ko‘p vaqt, soniya
   timeout: 60           # sekund; xizmat javob bermasa tahlil yozuvsiz yakunlanadi
 
 onboarding:

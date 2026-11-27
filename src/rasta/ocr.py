@@ -29,6 +29,8 @@ from typing import Optional
 
 import numpy as np
 
+from .types import Match
+
 # ---- Matnni solishtirish -----------------------------------------------------
 
 _CYR = dict(zip("абвгдеёжзийклмнопрстуфхцчшщъыьэюя",
@@ -62,11 +64,18 @@ _SYNONYMS = [
     ("yong'oq", "орех", "nut"), ("asal", "мёд", "мед", "honey"), ("sut", "молоко", "milk"),
     ("o'rmon", "лесные", "лесная", "forest"), ("mevalari", "ягоды", "berries"),
     ("multifrukt", "мультифрукт", "multifruit"), ("tropik", "тропик", "tropic", "tropical"),
+    ("moxito", "мохито", "mojito", "mohito"),
     ("gazsiz", "негазированная", "still"), ("gazli", "газированная", "sparkling"),
 ]
 _SYN = {w: group for group in _SYNONYMS for w in group}
 _FLAVORS = {_translit(word.replace("'", "")): group[0] for group in _SYNONYMS
             if group[0] not in ("gazli", "gazsiz") for word in group}
+_FLAVORS.update({_translit(word): flavor for word, flavor in {
+    "яблочный": "olma", "гранатовый": "anor", "вишнёвый": "olcha",
+    "персиковый": "shaftoli", "ананасовый": "ananas", "томатный": "pomidor",
+    "арбузом": "tarvuz", "виноградный": "uzum", "смородиной": "smorodina",
+}.items()})
+_FLAVOR_LABEL_WORDS = {"and", "va", "bilan", "s", "c", "so", "myakotyu", "sok", "nektar", "vkus", "vkusom"}
 _STOP = {"va", "and", "bilan", "the", "new", "pet", "ta'mi", "ta'mli", "vkus", "вкус", "со", "вкусом", "dona", "шт"}
 _UNIT = re.compile(r"(?<![0-9a-zа-я])(\d+(?:[.,]\d+)?)\s*(ml|мл|l|л|g|gr|г|гр|kg|кг)(?![a-zа-я])")
 
@@ -174,6 +183,14 @@ def _flavor_tokens(text: str) -> list[str]:
     return _translit(text.translate(_APOS).replace("'", "")).split()
 
 
+_FLAVOR_WORDS = sorted({word for group in _SYNONYMS if group[0] not in ("gazli", "gazsiz") for word in group})
+
+
+def _is_flavour_text(text: str) -> bool:
+    """Qatorda ta'm (meva) so'zi bormi — OCR xatosi bilan o'qilgan bo'lsa ham («AHAHAC» = «ананас»)."""
+    return any(_hit(word, [str(text)]) for word in _FLAVOR_WORDS)
+
+
 def _flavors(text: str) -> set[str]:
     return {_FLAVORS[token] for token in _flavor_tokens(text)
             if token in _FLAVORS}
@@ -184,6 +201,7 @@ def variant_difference(texts, name: str, brand: Optional[str], *, strong: float,
     """Compare clearly printed flavor or volume against the catalog SKU name."""
     expected_ml = name_volume(name)
     expected_flavors = _flavors(" ".join(keywords(name, brand)))
+    ignored_words = _FLAVOR_LABEL_WORDS | set(_flavor_tokens(brand or ""))
     volumes = set()
     flavors = set()
     flavor_words = []
@@ -198,16 +216,15 @@ def variant_difference(texts, name: str, brand: Optional[str], *, strong: float,
             if ml is not None:
                 volumes.add(ml)
         if expected_flavors and size >= big:
-            tokens = set(_flavor_tokens(text)) - {"and", "va"}
-            found = _flavors(text)
-            if found and tokens <= _FLAVORS.keys():
-                flavors.update(found)
+            tokens = set(_flavor_tokens(text)) - ignored_words
+            if tokens and tokens <= _FLAVORS.keys():
+                flavors.update(_FLAVORS[token] for token in tokens)
                 flavor_words.append(text)
+    if flavors and flavors.isdisjoint(expected_flavors):
+        return "flavor", " · ".join(dict.fromkeys(flavor_words))
     if len(volumes) == 1 and expected_ml not in volumes:
         ml = next(iter(volumes))
         return "volume", f"{ml / 1000:g} L" if ml >= 1000 else f"{ml} ml"
-    if flavors and flavors.isdisjoint(expected_flavors):
-        return "flavor", " · ".join(dict.fromkeys(flavor_words))
     return None
 
 
@@ -227,18 +244,30 @@ def label_words(readings, *, min_conf: float = 0.8, min_size: float = 0.05, limi
 
 
 def _near(word: str, token: str, ratio: float = 0.7) -> bool:
-    """Token mahsulotning o'z so'ziga yaqinmi (OCR xatosi bilan o'qilgan bo'lishi mumkin)."""
+    """Token mahsulotning o'z so'ziga yaqinmi (OCR xatosi bilan o'qilgan bo'lishi mumkin).
+    Qisqa so'zda (≤4 harf) bitta harf xatosi ham yaqin hisoblanadi: «haw» ~ «Hau»."""
     for norm in (_translit, _skeleton):
         k = norm(word).replace(" ", "")
-        if len(k) >= 3 and any(SequenceMatcher(None, k, t).ratio() >= ratio
-                               for t in norm(token).split() if len(t) >= 3):
-            return True
+        if len(k) < 3:
+            continue
+        for t in norm(token).split():
+            if len(t) < 3:
+                continue
+            if SequenceMatcher(None, k, t).ratio() >= (0.65 if max(len(k), len(t)) <= 4 else ratio):
+                return True
     return False
+
+
+_GENERIC_TITLES = {"new", "bio", "eco", "pet", "max", "pro", "top", "zero", "free", "light", "mini", "maxi"}
+
+
+def alpha_text(text) -> str:
+    return re.sub(r"[^a-zа-яё]", "", str(text).lower())
 
 
 def judge(texts, own: list[str], brand: Optional[str] = None, *, min_conf: float = 0.5,
           strong: float = 0.9, big: float = 0.05, letters: int = 5,
-          dominant: float = 0.25, dominant_conf: float = 0.85) -> tuple[str, str]:
+          dominant: float = 0.25, dominant_conf: float = 0.85, neutral=()) -> tuple[str, str]:
     """Qutidagi yozuv mahsulotning o'z so'zlariga mos keladimi.
 
     texts: [(matn, ishonch, x1, x2, harf o'lchami)]; own: namunadagi so'zlar + nom + brend.
@@ -253,6 +282,8 @@ def judge(texts, own: list[str], brand: Optional[str] = None, *, min_conf: float
     qilib o'qiydi. Qutidagi eng yirik yozuv (harfi kichik tomonning `dominant` ulushidan kam emas —
     odatda brend nomi) mahsulotning o'z so'ziga o'xshamasa, u qisqa («mic», qo'shni to'sib turgan
     «Micco») va ishonchi biroz past (`dominant_conf`) bo'lsa ham begona hisoblanadi.
+    `neutral` — mahsulotga mos deb tasdiqlangan qutilarda takrorlanadigan so'zlar (ishlab chiquvchi nomi):
+    ular begona hisoblanmaydi, lekin mos kelishning dalili ham emas.
     """
     tokens = [str(t[0]) for t in texts if float(t[1]) >= min_conf]
     if not tokens or not own:
@@ -261,10 +292,15 @@ def judge(texts, own: list[str], brand: Optional[str] = None, *, min_conf: float
     hit = [w for w in own if any(_hit(v, tokens) for v in spoken(w))]
     alien = []
     title = False
+    # Kirill harfli nomda («Наш сад») OCR brendni lotin harflari bilan buzib o'qiydi («Hau», «cag»): sarlavha qoidasi
+    # u yerda to'g'ri qutini ham rad etardi. Umumiy so'zlar («new», «bio») ham sarlavha emas.
+    if any(re.search(r"[а-яё]", str(w)) for w in own):
+        dominant = 0.0
     for t in texts:
         size = float(t[4]) if len(t) > 4 else 0.0
         count = len(re.sub(r"[^a-zа-яё]", "", str(t[0]).lower()))
-        if count < 2 or any(_near(v, str(t[0])) for w in own for v in spoken(w)):
+        if (count < 2 or alpha_text(t[0]) in _GENERIC_TITLES
+                or any(_near(v, str(t[0])) for w in list(own) + list(neutral) for v in spoken(w))):
             continue
         if float(t[1]) >= strong and size >= big:
             alien.append((size, str(t[0]), count))
@@ -433,9 +469,9 @@ def verify_with_text(detections, image: np.ndarray, reader, catalog, *, hires=No
     bo'lsa, moslik bekor qilinadi (yoki faqat brend darajasida qoldiriladi).
 
     Eng past balli qutilardan boshlanadi (noto'g'ri mosliklar o'sha yerda to'planadi) va
-    `max_boxes` bilan cheklanadi; `risky(match)` berilsa — faqat u True qaytargan (chegaraga
-    yaqin balli) qutilar o'qiladi. Katalog nomidagi aniq ta'm va hajm yozuvi namuna
-    yozuvi yo'q SKU'lar uchun ham tekshiriladi.
+    `max_boxes` bilan cheklanadi. `risky(match)` chegaraga yaqin mosliklarni tanlaydi.
+    Nomi aniq ta’mni bildiradigan SKU ham tekshiriladi: bir brendning ikki qadoq dizayni
+    bir-biriga juda o‘xshashi mumkin.
     `words_for(sku)` berilsa, namuna yozuvi hali saqlanmagan mahsulotlar uchun u chaqiriladi
     (saqlangan rasmlardan o'qib katalogga yozadi) — bir tahlilda eng ko'pi `max_fill` ta mahsulot:
     eski mahsulotlarni qo'lda qayta o'rgatish shart emas.
@@ -448,8 +484,10 @@ def verify_with_text(detections, image: np.ndarray, reader, catalog, *, hires=No
         match = d.match
         if match is None or match.text is not None:
             continue
-        if match.is_known and match.sku_id and (risky is None or risky(match)):
-            pending.append((d, match.sku_id))
+        if match.is_known and match.sku_id:
+            named_flavor = _flavors(" ".join(keywords(match.name or "", match.brand)))
+            if named_flavor or risky is None or risky(match):
+                pending.append((d, match.sku_id))
         elif match.level == "variant" and len(match.candidates) == 1:
             sku = match.candidates[0].get("sku_id")
             if sku:
@@ -485,8 +523,39 @@ def verify_with_text(detections, image: np.ndarray, reader, catalog, *, hires=No
     if results is None:
         return 0
     changed = 0
+    prepared = []
     for (d, own, brand, name), texts in zip(jobs, results):
+        family = bool(d.match.is_known and d.match.family)
+        # Brendning barcha ta'mlari bitta yozuv bilan yuritilsa, ta'm so'zi begona emas; sarlavha qoidasi ham
+        # o'chadi (brendning o'zi yirik yoziladi va tez-tez noto'g'ri o'qiladi: «LSI» = «Bliss»)
+        view = [t for t in texts if not _is_flavour_text(t[0])] if family else texts
         difference = variant_difference(texts, name, brand, strong=strong, big=big)
+        prepared.append([d, own, brand, name, texts, view, family, difference, None])
+
+    def judged(item, extra=()):
+        d, own, brand, _, _, view, family, _, _ = item
+        return judge(view, own, brand, min_conf=min_conf, strong=strong, big=big, letters=letters,
+                     neutral=extra, **({"dominant": 0.0} if family else {}))
+
+    # 1-o'tish: yozuvi mahsulotga mos deb tasdiqlangan qutilar. Ularning hammasida takrorlanadigan yirik so'z
+    # (ishlab chiqaruvchi nomi: «AGROMIR») shu mahsulotning o'z so'zi — boshqa qutilarda uni begona deb bo'lmaydi.
+    shared: dict[str, dict[str, int]] = {}
+    for item in prepared:
+        d, own, brand, _, _, view, _, difference, _ = item
+        if difference is not None or not d.match.is_known:
+            continue
+        item[8] = judged(item)
+        if item[8][0] == "brand" and item[6]:                  # umumiy brend yozuvi: brend so'zi o'qilgan — mos
+            item[8] = ("support", brand or item[8][1])
+        if item[8][0] == "support":
+            seen = {w for t in view if float(t[1]) >= strong and (len(t) < 5 or float(t[4]) >= big)
+                    for w in _words(t[0]) if len(w) >= 4}
+            counts = shared.setdefault(d.match.sku_id, {})
+            for w in seen:
+                counts[w] = counts.get(w, 0) + 1
+
+    for item in prepared:
+        d, own, brand, name, texts, view, family, difference, verdict = item
         if difference is not None:
             kind, evidence = difference
             brand_text = _translit(brand or "")
@@ -504,8 +573,11 @@ def verify_with_text(detections, image: np.ndarray, reader, catalog, *, hires=No
             continue
         if not d.match.is_known:
             continue
-        verdict, word = judge(texts, own, brand, min_conf=min_conf, strong=strong, big=big, letters=letters)
-        if verdict == "brand" and d.match.family:
+        extra = [w for w, c in shared.get(d.match.sku_id, {}).items() if c >= 2]
+        if verdict[0] in ("contradict", "brand") and extra:
+            verdict = judged(item, extra)
+        verdict, word = verdict
+        if verdict == "brand" and family:
             verdict, word = "support", brand or word
         if verdict == "support" and not word:
             word = own[0] if own else ""
@@ -518,3 +590,63 @@ def verify_with_text(detections, image: np.ndarray, reader, catalog, *, hires=No
             continue
         changed += 1
     return changed
+
+
+def brand_from_text(texts, brands, *, strong: float = 0.85, big: float = 0.04, edge: float = 0.03):
+    """Katalogdagi brendlardan qaysi biri qutida yirik va aniq yozilgan.
+
+    texts: [(matn, ishonch, x1, x2, harf o'lchami)]; brands: katalogdagi brend nomlari.
+    -> brend nomi (aynan bitta brend topilsa) yoki None. Brendning eng uzun so'zi, ko'p so'zli
+    nomda esa so'zlarning kamida yarmi o'qilgan bo'lishi kerak; quti chetiga tegib turgan matn
+    (qo'shni qadoqniki) hisobga olinmaydi."""
+    lines = [str(t[0]) for t in texts
+             if float(t[1]) >= strong and (len(t) < 5 or float(t[4]) >= big)
+             and (len(t) < 4 or (float(t[2]) > edge and float(t[3]) < 1 - edge))]
+    found = []
+    for brand in brands:
+        words = [w for w in _words(brand) if len(w) >= 3]
+        if not words:
+            continue
+        hits = [w for w in words if any(_hit(w, [line]) for line in lines)]
+        if max(words, key=len) in hits and 2 * len(hits) >= len(words):
+            found.append(brand)
+    return found[0] if len(found) == 1 else None
+
+
+def count_brands_with_text(detections, image: np.ndarray, reader, catalog, *, hires=None,
+                           max_boxes: int = 24, strong: float = 0.85, big: float = 0.04) -> int:
+    """Tanilmagan qutilarni brend bo'yicha sanash: qutida katalogdagi brend nomi yozilgan bo'lsa, quti shu
+    brendga qo'shiladi (SKU yoki ta'mi noma'lum qoladi). Avval brend bo'yicha sanaladi, keyin ta'm ajratiladi.
+
+    Faqat hech qanday brendga bog'lanmagan qutilar o'qiladi, kattalari birinchi. Yozuv tekshiruvi boshqa
+    ta'm yoki hajm deb rad etgan quti ham kiradi (brendi bir xil), boshqa mahsulot deb rad etgani esa — yo'q. Natija: `level="brand"`, `checked="brand:<brend>"`; bunday quti klaster orqali brendni
+    tasdiqlashda tayanch (anchor) bo'ladi. -> nechta quti brendga qo'shildi."""
+    brands = sorted({(entry.get("brand") or "").strip() for entry in catalog.sku_info().values()} - {""})
+    if not brands:
+        return 0
+    heights = [d.box.height for d in detections if d.box.height > 0]
+    typical = float(np.median(heights)) if heights else 0.0
+    todo = [d for d in detections
+            if (d.match is None or (not d.match.is_known and d.match.level is None
+                                    and (d.match.mismatch is None or d.match.mismatch_kind in ("flavor", "volume"))))
+            and d.box.height >= 0.6 * typical]
+    todo = sorted(todo, key=lambda d: -d.box.area)[:max_boxes]
+    if not todo:
+        return 0
+    source, scale = image, 1.0
+    big_image = hires() if callable(hires) else hires
+    if big_image is not None and big_image.shape[1] > image.shape[1]:
+        source, scale = big_image, big_image.shape[1] / image.shape[1]
+    results = reader.read([label_crop(source, d.box, scale, min_long=1400, max_long=1800) for d in todo])
+    if results is None:
+        return 0
+    counted = 0
+    for d, texts in zip(todo, results):
+        brand = brand_from_text(texts, brands, strong=strong, big=big)
+        if brand is None:
+            continue
+        base = d.match if d.match is not None else Match(None, None, 0.0, 0.0, False, [])
+        d.match = replace(base, brand=brand, level="brand", checked=f"brand:{brand}")
+        counted += 1
+    return counted
+

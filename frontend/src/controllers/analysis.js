@@ -1,6 +1,10 @@
 export default function mountPage() {
   const $ = id => document.getElementById(id);
   const cv = $("cv"), ctx = cv.getContext("2d");
+  const preview = document.createElement("canvas");
+  const previewContext = preview.getContext("2d");
+  const previewMaxSide = 1800;
+  let drawFrame = 0;
   let file = null, img = null, pts = [], drawing = false, closed = false;
   let R = null, showBoxes = true, hl = null, hlGroup = null, analysis = null, pendingImage = null;
   let canTeach = false;
@@ -61,10 +65,15 @@ export default function mountPage() {
   function renderScope() {
     $("scopeCard").hidden = catalogItems.length < 2;          // bitta mahsulot bo'lsa tanlovning ma'nosi yo'q
     scopeSummary();
+    if ($("scopeBody").hidden) return;
     const query = $("scopeSearch").value.trim().toLowerCase();
     const shown = catalogItems.filter(p => !query || `${p.name} ${p.brand || ""}`.toLowerCase().includes(query));
     const brands = new Map();
-    for (const p of shown) brands.set(p.brand || "Brendsiz", [...(brands.get(p.brand || "Brendsiz") || []), p]);
+    for (const p of shown) {
+      const brand = p.brand || "Brendsiz";
+      if (!brands.has(brand)) brands.set(brand, []);
+      brands.get(brand).push(p);
+    }
     const on = sku => scope === null || scope.has(sku);
     $("scopeList").innerHTML = shown.length ? [...brands].map(([brand, items]) => `
       <div class="scope-brand"><span>${esc(brand)}</span>
@@ -104,6 +113,7 @@ export default function mountPage() {
     $("scopeBody").hidden = !open;
     $("scopeToggle").setAttribute("aria-expanded", String(open));
     $("scopeToggle").textContent = open ? "Yopish" : "Tanlash";
+    if (open) renderScope();
   };
   $("scopeSearch").oninput = renderScope;
   $("scopeAll").onclick = () => { scope = null; $("err").textContent = ""; renderScope(); };
@@ -132,6 +142,7 @@ export default function mountPage() {
       label_brand: `Faqat brend aniqlandi: brend yozuvi ${why.n} bilan bir xil, lekin qadoqda${why.w ? ` «${why.w}»` : " boshqa nom"} yozilgan — shu brendning boshqa mahsuloti.`,
       label_flavor: `Boshqa ta’m aniqlandi. Yorliqda «${why.w}» o‘qildi. Katalogdagi eng yaqin mahsulot — ${why.n}.`,
       label_volume: `Boshqa hajm aniqlandi. Yorliqda ${why.w} o‘qildi. Katalogdagi eng yaqin mahsulot — ${why.n}.`,
+      brand_text: `Brend yozuv bo‘yicha aniqlandi: «${why.w}». Ta’mi yoki mahsulot turi aniqlanmagan — brend hisobiga qo‘shildi.`,
       brand: `Brend aniqlandi. Ta’m yoki hajmni ishonchli ajratish uchun dalil yetarli emas.`,
       brand_context: `${why.brand} deb tanildi. Shu klasterdagi tanilgan qadoqlar bilan mos. Ta’mi yoki hajmi noaniq.`,
       empty: "Katalog bo‘sh — taqqoslash uchun mahsulot yo‘q.",
@@ -173,9 +184,12 @@ export default function mountPage() {
       analysis?.abort();
       img = next; file = f; pts = []; closed = false; drawing = false;
       resetResult(); R = null; hl = null;
-      cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+      const scale = Math.min(1, previewMaxSide / Math.max(img.naturalWidth, img.naturalHeight));
+      cv.width = preview.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      cv.height = preview.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      previewContext.drawImage(img, 0, 0, preview.width, preview.height);
       $("photoName").textContent = f.name;
-      $("photoInfo").textContent = `${cv.width} × ${cv.height} px`;
+      $("photoInfo").textContent = `${img.naturalWidth} × ${img.naturalHeight} px`;
       phase("photo");
       $("start").hidden = true; $("work").hidden = false;
       $("pre").hidden = false; $("res").hidden = true; $("boxesBtn").hidden = true;
@@ -203,11 +217,17 @@ export default function mountPage() {
 
   // ---------- chizish ----------
   const k = () => cv.width / cv.getBoundingClientRect().width;      // ekran -> rasm
-  function path(points) { ctx.beginPath(); points.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); }
   function draw() {
-    if (!img) return;
-    const s = k(), lw = Math.max(2, 2 * s);
-    ctx.drawImage(img, 0, 0);
+    if (!img || drawFrame) return;
+    drawFrame = requestAnimationFrame(() => {
+      drawFrame = 0;
+      if (cv.clientWidth) paint(ctx, preview);
+    });
+  }
+  function paint(ctx, source) {
+    const s = k(), lw = 2 * s;
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.drawImage(source, 0, 0, cv.width, cv.height);
     const zone = R ? R.roiPts : (closed ? pts : null);
     if (zone) {                                   // zona tashqarisini xiralashtirish
       ctx.save(); ctx.fillStyle = "rgba(15,23,42,.5)"; ctx.beginPath();
@@ -239,7 +259,7 @@ export default function mountPage() {
           ctx.fillRect(x1, y1, x2 - x1, y2 - y1); ctx.strokeRect(x1, y1, x2 - x1, y2 - y1); return;
         }
         const on = !hl || d.s === hl;
-        if (!col && d.v) {            // o'xshaydi, lekin rangi farq qiladi: uzuq sariq ramka
+        if (!col && (d.v || d.other_flavor)) {   // boshqa ta’m yoki rang: uzuq sariq ramka
           ctx.save(); ctx.globalAlpha = hl ? .3 : 1;
           ctx.setLineDash([lw * 3, lw * 2]); ctx.lineWidth = lw * 1.1; ctx.strokeStyle = "#f59e0b";
           ctx.strokeRect(x1, y1, x2 - x1, y2 - y1); ctx.restore(); return;
@@ -265,7 +285,9 @@ export default function mountPage() {
     }
     if (zone || (drawing && pts.length)) {
       const z = zone || pts;
-      path(z); if (zone) ctx.closePath();
+      ctx.beginPath();
+      z.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+      if (zone) ctx.closePath();
       ctx.lineWidth = lw * 1.3; ctx.strokeStyle = "#10b981"; ctx.stroke();
       if (!R) z.forEach(([x, y], i) => { ctx.beginPath(); ctx.arc(x, y, 5 * s, 0, 7);
         ctx.fillStyle = i ? "#10b981" : "#fff"; ctx.fill(); ctx.lineWidth = 2 * s; ctx.strokeStyle = "#10b981"; ctx.stroke(); });
@@ -294,10 +316,11 @@ export default function mountPage() {
   $("zoneBtn").onclick = () => { resetResult(); drawing = true; pts = []; closed = false; ui(); draw(); };
   $("zoneClear").onclick = () => { resetResult(); drawing = false; pts = []; closed = false; ui(); draw(); };
   cv.addEventListener("click", e => {
+    const r = cv.getBoundingClientRect();
+    const imageX = (e.clientX - r.left) / r.width, imageY = (e.clientY - r.top) / r.height;
     if (!drawing) {
       if (!R || !showBoxes) return;
-      const r = cv.getBoundingClientRect(), s = k();
-      const x = (e.clientX - r.left) * s / R.scale[0], y = (e.clientY - r.top) * s / R.scale[1];
+      const x = imageX * R.data.size[0], y = imageY * R.data.size[1];
       let best = -1, area = Infinity;
       R.detections.forEach((d, i) => {
         const [x1, y1, x2, y2] = d.b, a = (x2 - x1) * (y2 - y1);
@@ -310,8 +333,11 @@ export default function mountPage() {
       draw();
       return;
     }
-    const r = cv.getBoundingClientRect(), s = k();
-    const p = [Math.round((e.clientX - r.left) * s), Math.round((e.clientY - r.top) * s)];
+    const s = k();
+    const p = [
+      Math.round(imageX * img.naturalWidth) / img.naturalWidth * cv.width,
+      Math.round(imageY * img.naturalHeight) / img.naturalHeight * cv.height,
+    ];
     if (pts.length >= 3 && Math.hypot(p[0] - pts[0][0], p[1] - pts[0][1]) < 14 * s) { closed = true; drawing = false; }
     else pts.push(p);
     ui(); draw();
@@ -325,7 +351,7 @@ export default function mountPage() {
 
   // ---------- tahlil ----------
   async function analyze(btn) {
-    if (!file || btn.disabled) return;
+    if (!file || btn.disabled || (analysis && !analysis.signal.aborted)) return;
     if (drawing) { $("err").textContent = "Zonani yoping yoki bekor qiling."; return; }
     if (scope !== null && !scope.size) {
       $("err").textContent = "Qidiruv doirasida kamida bitta mahsulot belgilang yoki “Hammasi”ni bosing.";
@@ -377,7 +403,17 @@ export default function mountPage() {
     if (R) download(new Blob([JSON.stringify(R.data, null, 2)], { type: "application/json" }), "-rasta.json");
   };
   $("exportImage").onclick = () => {
-    if (R) cv.toBlob(blob => { if (blob) download(blob, "-rasta.png"); });
+    if (!R) return;
+    const output = document.createElement("canvas");
+    output.width = img.naturalWidth;
+    output.height = img.naturalHeight;
+    const outputContext = output.getContext("2d");
+    outputContext.scale(output.width / cv.width, output.height / cv.height);
+    paint(outputContext, img);
+    output.toBlob(blob => {
+      if (blob) download(blob, "-rasta.png");
+      output.width = output.height = 0;
+    });
   };
 
   function kpi(ic, label, value, extra = "", cls = "") {
@@ -443,7 +479,7 @@ export default function mountPage() {
     const max = Math.max(1, ...ps.map(p => p.share_pct));
     const productRow = p => `
       <div class="prow" data-sku="${esc(p.sku_id)}">
-        ${p.thumb ? `<img class="th" src="${p.thumb}" alt="">` : '<span class="th"></span>'}
+        ${p.thumb ? `<img class="th" src="${p.thumb}" alt="" loading="lazy" decoding="async">` : '<span class="th"></span>'}
         <div style="min-width:0">
           <div class="nm"><span class="dot" style="background:${p.color}"></span>${esc(p.name)}</div>
           <div class="sub">${esc(p.brand || "—")}</div>
@@ -457,16 +493,20 @@ export default function mountPage() {
     }));
     const grouped = new Set(brands.flatMap(brand => brand.products.map(p => p.sku_id)));
     const otherProducts = ps.filter(p => !p.family && !grouped.has(p.sku_id));
-    $("plTitle").textContent = brands.length ? "Brendlar va variantlar" : "Mahsulotlar";
-    $("plist").innerHTML = brands.length || otherProducts.length ? brands.map(brand => `
+    const otherFlavorCount = Math.max(0, (s.num_other_flavor || 0) -
+      brands.reduce((count, brand) => count + (brand.other_flavor_facings || 0), 0));
+    const countRow = (label, count) => count ? `<div class="prow" style="grid-template-columns:minmax(0,1fr) auto">
+      <div class="sub">${label}</div><div class="r">${count} ta</div></div>` : "";
+    $("plTitle").textContent = brands.length || otherFlavorCount ? "Brendlar va variantlar" : "Mahsulotlar";
+    $("plist").innerHTML = brands.length || otherProducts.length || otherFlavorCount ? brands.map(brand => `
       <div class="prow" style="grid-template-columns:minmax(0,1fr) auto">
         <div class="nm"><strong>${esc(brand.brand)}</strong></div>
         <div class="r"><b>${brand.facings} ta jami</b></div>
       </div>
       ${brand.products.map(productRow).join("")}
-      ${brand.unresolved_facings ? `<div class="prow" style="grid-template-columns:minmax(0,1fr) auto">
-        <div class="sub">Ta’mi yoki hajmi noaniq</div><div class="r">${brand.unresolved_facings} ta</div>
-      </div>` : ""}`).join("") + otherProducts.map(productRow).join("")
+      ${countRow("Boshqa ta’m", brand.other_flavor_facings)}
+      ${countRow("Ta’mi yoki hajmi noaniq", Math.max(0, brand.unresolved_facings - (brand.other_flavor_facings || 0)))}
+      `).join("") + otherProducts.map(productRow).join("") + countRow("Boshqa ta’m · brend noaniq", otherFlavorCount)
       : `<div class="empty">Katalogdagi mahsulotlar topilmadi.${canTeach ? '<br><a href="/admin">Mahsulot qo‘shish →</a>' : ''}</div>`;
 
     document.querySelectorAll("[data-sku]").forEach(el => {
@@ -477,6 +517,7 @@ export default function mountPage() {
 
     const notes = [];
     if (canTeach) notes.push(["poly", "Mahsulotni rasmda bosib tanlang va katalogga qo‘shing."]);
+    if (d.label_check === "disabled") notes.push(["alert", "Yorliqni o‘qish xizmati ulanmagan. Qadoqdagi ta’m va hajm yozuvi tekshirilmadi.", "warn"]);
     if (d.label_check === "skipped") notes.push(["alert", "Yozuv o‘qish xizmati javob bermadi — qadoqdagi yozuv bo‘yicha tekshiruv bu tahlilda o‘tkazilmadi. Katalogga o‘xshash, lekin boshqa mahsulotlar tanilgan bo‘lishi mumkin.", "warn"]);
     if (d.label_check === "outdated") notes.push(["alert", "Yozuv o‘qish xizmati eski versiyada — qadoqdagi yozuv bo‘yicha tekshiruv ishlamayapti. Serverda “docker compose --profile ocr up -d --build” ni bajaring.", "warn"]);
     if (d.scope) notes.push(["info", `Qidiruv faqat tanlangan ${d.scope} ta mahsulot orasidan o‘tkazildi — katalogdagi boshqa mahsulotlar bu tahlilda tanilmaydi.`]);
@@ -566,11 +607,11 @@ export default function mountPage() {
         <canvas width="112" height="112" aria-hidden="true"></canvas><b>${list.length}</b>
       </button>`).join("")
       + (R.groups.length > shown.length ? `<p class="group-more">+ yana ${R.groups.length - shown.length} ta kichik guruh</p>` : "");
-    const ratio = img.naturalWidth / R.data.size[0];
+    const imageScale = [img.naturalWidth / R.data.size[0], img.naturalHeight / R.data.size[1]];
     $("groups").querySelectorAll("[data-group]").forEach(row => {
       const g = Number(row.dataset.group), list = R.groups[g];
       const area = i => { const [x1, y1, x2, y2] = R.detections[i].b; return (x2 - x1) * (y2 - y1); };
-      const [x1, y1, x2, y2] = R.detections[list.reduce((a, b) => area(b) > area(a) ? b : a)].b.map(v => v * ratio);
+      const [x1, y1, x2, y2] = R.detections[list.reduce((a, b) => area(b) > area(a) ? b : a)].b.map((value, i) => value * imageScale[i % 2]);
       const thumb = row.querySelector("canvas"), side = Math.max(x2 - x1, y2 - y1), fit = thumb.width / side;
       const paint = thumb.getContext("2d"); paint.fillStyle = "#e8eee9"; paint.fillRect(0, 0, thumb.width, thumb.height);
       const w = (x2 - x1) * fit, h = (y2 - y1) * fit;

@@ -371,6 +371,8 @@ class SkuCatalog:
         self._cache = None
 
     def count(self) -> int:
+        if self.is_local and self._cache is not None:
+            return len(self._cache[0])
         return self.client.count(self.collection).count
 
     def _scroll(self, scroll_filter=None):
@@ -393,8 +395,10 @@ class SkuCatalog:
     def sku_info(self) -> dict[str, dict]:
         """Return names, catalog metadata, and vector counts by SKU."""
         out: dict[str, dict] = {}
-        for p in self._scroll():
-            pl = p.payload or {}
+        payloads = self._cache[1] if self.is_local and self._cache is not None else (
+            point.payload or {} for point in self._scroll()
+        )
+        for pl in payloads:
             sku = pl.get("sku_id", "?")
             r = out.setdefault(sku, {"name": pl.get("name", sku), "brand": pl.get("brand"),
                                      "category": pl.get("category"), "barcode": pl.get("barcode"),
@@ -444,7 +448,7 @@ class SkuCatalog:
         if allowed is not None and not allowed:
             return [Match(None, None, 0.0, 0.0, False, []) for _ in range(len(vectors))]
         if self.is_local:
-            return self._search_numpy(vectors, params, colors, aspects, limit, neg, allowed)
+            return self._search_numpy(Qn, params, colors, aspects, limit, neg, allowed)
         scope = None if allowed is None else Filter(
             must=[FieldCondition(key="sku_id", match=MatchAny(any=sorted(allowed)))])
         responses = []
@@ -512,7 +516,7 @@ class SkuCatalog:
         return NegativeBank.fused(Q, colors, aspects, nb.emb[keep], nb.color[keep],
                                   nb.aspect[keep], params).max(1)
 
-    def _search_numpy(self, vectors, params, colors, aspects, limit, neg=None, allowed=None) -> list[Match]:
+    def _search_numpy(self, Q, params, colors, aspects, limit, neg=None, allowed=None) -> list[Match]:
         from types import SimpleNamespace
 
         G, pays = self._load_cache()
@@ -521,8 +525,7 @@ class SkuCatalog:
             keep = [j for j, p in enumerate(pays) if p.get("sku_id") in allowed]
             G, pays = G[keep], [pays[j] for j in keep]
         if len(G) == 0:
-            return [Match(None, None, 0.0, 0.0, False, []) for _ in range(len(vectors))]
-        Q = vectors / np.linalg.norm(vectors, axis=1, keepdims=True).clip(1e-6)
+            return [Match(None, None, 0.0, 0.0, False, []) for _ in range(len(Q))]
         S = Q @ G.T
         k = min(limit, S.shape[1])
         top = np.argpartition(-S, k - 1, axis=1)[:, :k]

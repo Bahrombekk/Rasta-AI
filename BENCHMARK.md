@@ -838,3 +838,36 @@ shu sinov 4311 ms/crop; haqiqiy javon qutilarida 2–9 s. Serverning protsessori
 Qurish: GPU'li Paddle `import` paytidayoq `libcuda.so.1` ni talab qiladi, u esa image qurilayotganda yo'q —
 modellar alohida CPU bosqichida yuklanadi (ocr/Dockerfile). GPU ko'rinmasa xizmat o'zi CPU'ga o'tadi.
 
+### 11m. Brend bo'yicha sanash, umumiy brend yozuvi va yozuv tekshiruvidagi xatolar — 2026-11-27
+
+Foydalanuvchi Bliss javonini ko'rsatdi: katalogda bitta "Bliss" yozuvi, javonda ta'mlari va seriyasi har xil
+kartonlar; hammasi Bliss hisobiga kirishi kerak edi. Bo'sh va 1 mahsulotli kataloglarda sinab, yozuv tekshiruvi
+(OCR) **to'g'ri qutilarni noto'g'ri rad etayotgani** topildi:
+
+- Har kartonda ishlab chiqaruvchi nomi (AGROMIR) bosilgan; namuna kartonining so'zlari orasida u yo'q edi, brend so'zi
+  («Bliss») o'qilmagan qutida u "begona yozuv" bo'lib, quti rad etilardi. Endi mahsulotga mos deb tasdiqlangan
+  qutilarning kamida ikkitasida takrorlanadigan so'z shu mahsulot uchun neytral hisoblanadi (mos kelishning dalili ham,
+  begona yozuv ham emas).
+- Umumiy brend yozuvida (nomi brendga teng) ta'm so'zi («ананас» → «AHAHAC») begona emas, sarlavha qoidasi ham o'chadi
+  («Bliss» logotipi «LSI» deb o'qiladi).
+- Kirill nomli mahsulotlarda sarlavha qoidasi o'chiq («Наш сад» → «Hau»), «new», «bio» kabi umumiy so'zlar begona
+  hisoblanmaydi, 3–4 harfli so'zda bitta harf xatosi («haw» ~ «Hau») yaqin sanaladi. Bu xatolarni 1 mahsulotli
+  muzlatgich sinovi ko'rsatdi: to'g'ri quti rad etilib 14/16 → 13/16 bo'lgan, tuzatilgach yana 14/16.
+
+Bliss javoni, katalogda "Bliss" (bitta yozuv): OCR bilan 5 ta quti rad etilardi, endi 0; 6 ta quti SKU, 3 ta brend
+darajasi, 1 ta noma'lum (kesilgan quti). Muzlatgich, 4 holat, OCR yoqilgan: 16/16, 16/18, 14/16, 15/18 — OCR'siz bilan
+bir xil. Eski natijalar saqlandi: to'g'ri qutini nohaq rad 0/33, «Наш сад» qutisi Ays'ga qarshi 21/27.
+
+**Brend bo'yicha sanash (avval brend, keyin ta'm).** Tanilmagan qutida katalogdagi brend nomi yirik va aniq yozilgan
+bo'lsa (ishonch ≥0.85, harf ≥4%, bitta brend), quti shu brendga sanaladi, SKU/ta'mi noma'lum qoladi
+(`ocr.brand_text`). Muzlatgichning 34 qutisida: 9 tasida brend topildi, noto'g'ri brend 0, 25 tasida yozuv
+o'qilmadi (egilgan shisha) — ya'ni aniq, lekin qamrovi kichik qo'shimcha. Bunday quti klaster orqali brendni
+tasdiqlashda tayanch bo'ladi. Boshqa ta'm/hajm deb rad etilgan quti ham brendi o'qilsa brendga kiradi.
+
+**Avval rang/shakl, keyin klaster (qo'shilmadi).** Foydalanuvchi taklifi: avval rang va shakl guruhiga bo'lib, keyin
+guruh ichida embedding bo'yicha klasterlash. RP2K holdout (B-cubed F1; joriy usul 0.72/0.84/0.78/0.71 — 30 SKU, 30,
+120, 240 crop): chegara 0.25 da 0.19/0.48/0.27/0.26, 0.4 da 0.37/0.59/0.43/0.44, 0.6 da 0.59/0.70/0.63/0.63. Hamma
+chegarada yomonroq: bitta mahsulotning crop'lari yorug'lik va burchak tufayli turli rang guruhlariga tushib ketadi,
+qamrov 0.89 dan 0.23–0.80 ga tushadi. Rang foydali — lekin klaster tuzilgandan KEYIN dizayni o'xshash guruhni ta'mga
+ajratish uchun (meva rasmi qismining rangi DENA ta'mlarining ko'pini ajratdi), birinchi qadam sifatida emas.
+
