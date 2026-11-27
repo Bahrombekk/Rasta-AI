@@ -827,3 +827,14 @@ tasdiqlangan to'rtta qutiga SKU berilmadi. Bliss hisobida 3 ta ananas,
 1 ta olma va 6 ta varianti noaniq quti bor. Qatorning chap tomonida yon
 tomoni ko'ringan, Bliss yozuvi ko'rinmaydigan quti noma'lum qoldi.
 
+### 11l. Yozuv o'qish xizmati serverning GPU'sida — 2026-11-27
+
+OCR konteyneri endi serverning NVIDIA A2 kartasida ishlaydi (`RASTA_OCR_DEVICE=gpu:0`, PaddlePaddle CUDA 12.6),
+modellar va chegaralar o'zgarmagan. Server ichida `python -m rasta_ocr --selftest` (sintetik 900×1400 rasm,
+4 qator matn, isitishdan keyin 5 o'qishning o'rtachasi): **104 ms/crop**, o'qilgan matn CPU bilan bir xil
+(`Ays Tea`, `Shaftoli`, `1,25 L`, `qora choy`). Taqqoslash: ishlab chiquvchi kompyuteri protsessorida (band, 8 oqim)
+shu sinov 4311 ms/crop; haqiqiy javon qutilarida 2–9 s. Serverning protsessorida o'lchanmagan.
+
+Qurish: GPU'li Paddle `import` paytidayoq `libcuda.so.1` ni talab qiladi, u esa image qurilayotganda yo'q —
+modellar alohida CPU bosqichida yuklanadi (ocr/Dockerfile). GPU ko'rinmasa xizmat o'zi CPU'ga o'tadi.
+
