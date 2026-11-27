@@ -188,7 +188,7 @@ def test_ocr_service_requires_the_token_and_limits_the_batch():
 
     token = "t" * 32
     client = TestClient(create_ocr_app(token, reader=Fake()))
-    assert client.get("/ready").json() == {"ready": True}
+    assert client.get("/ready").json() == {"ready": True, "device": "cpu"}
     files = [("images", ("a.jpg", jpeg(), "image/jpeg")), ("images", ("b.jpg", jpeg(30, 20), "image/jpeg"))]
     assert client.post("/read", files=files).status_code == 401
     headers = {"X-Rasta-AI-Token": token}
@@ -443,3 +443,43 @@ def test_a_silent_reader_is_remembered_and_sample_words_distinguish_failure_from
     pipe.label_reader = Reader([[]])
     assert pipe._label_words(image) == []                # javob keldi, lekin rasmda yozuv yo'q
 
+
+
+def test_ocr_service_falls_back_to_the_cpu_and_says_which_device_it_uses(monkeypatch):
+    from rasta_ocr.service import PaddleReader
+
+    page = [{"rec_texts": ["ays"], "rec_scores": [0.99], "rec_polys": [[[0, 0], [20, 0], [20, 10], [0, 10]]]}]
+
+    class Working:
+        def predict(self, pixels):
+            return page
+
+    class BrokenAtFirstRead:                       # GPU that builds but fails once it runs
+        def predict(self, pixels):
+            raise NotImplementedError("no kernel")
+
+    built = []
+
+    def build(device, threads):
+        built.append(device)
+        if device == "gpu:0":
+            raise RuntimeError("no CUDA")
+        return Working() if device == "cpu" else BrokenAtFirstRead()
+
+    monkeypatch.setattr(PaddleReader, "_build", staticmethod(build))
+    reader = PaddleReader(device="gpu:0")
+    assert reader.device == "cpu" and built == ["gpu:0", "cpu"]
+    assert reader.read(np.zeros((40, 80, 3), np.uint8))[0][0] == "ays"
+    monkeypatch.setattr(PaddleReader, "_build", staticmethod(lambda d, t: BrokenAtFirstRead() if d != "cpu" else Working()))
+    assert PaddleReader(device="gpu:0").device == "cpu"          # birinchi o'qishda yiqilsa ham CPU'ga o'tadi
+    with pytest.raises(NotImplementedError):                     # CPU'ning o'zi buzuq bo'lsa — yashirilmaydi
+        monkeypatch.setattr(PaddleReader, "_build", staticmethod(lambda d, t: BrokenAtFirstRead()))
+        PaddleReader(device="cpu")
+
+    class Fake:
+        device = "gpu:0"
+
+        def read(self, pixels):
+            return []
+
+    assert TestClient(create_ocr_app("t" * 32, reader=Fake())).get("/ready").json() == {"ready": True, "device": "gpu:0"}

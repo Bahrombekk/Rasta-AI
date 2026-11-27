@@ -1,7 +1,9 @@
 """Private service that reads the text printed on product labels.
 
 Kept apart from the AI service: PaddleOCR brings its own framework and OpenCV build, which
-must not share an environment with PyTorch and Ultralytics. CPU only.
+must not share an environment with PyTorch and Ultralytics. Runs on the GPU when
+`RASTA_OCR_DEVICE` names one (`gpu:0`) and the installed Paddle build and the container can
+see it; otherwise it falls back to the CPU, with the same models and the same results.
 """
 from __future__ import annotations
 
@@ -24,11 +26,38 @@ REC_MODEL = "PP-OCRv6_medium_rec"
 
 
 class PaddleReader:
-    def __init__(self, threads: int | None = None):
+    def __init__(self, threads: int | None = None, device: str | None = None):
+        wanted = (device or os.environ.get("RASTA_OCR_DEVICE", "cpu")).strip().lower() or "cpu"
+        self.device = wanted
+        try:
+            self.ocr = self._build(wanted, threads)
+            self._warm_up()                        # a missing GPU often shows only at the first inference
+        except Exception as error:                 # CPU build of Paddle, no GPU in the container, driver mismatch
+            if wanted == "cpu":
+                raise
+            print(f"[rasta-ocr] {wanted} unavailable ({type(error).__name__}: {str(error)[:160]}) — using the CPU",
+                  flush=True)
+            self.device = "cpu"
+            self.ocr = self._build("cpu", threads)
+            self._warm_up()
+        print(f"[rasta-ocr] reading on {self.device}", flush=True)
+
+    def _warm_up(self) -> None:
+        """One read of a blank image: loads the weights onto the device, so the first real request is
+        not slow and a broken device fails here instead of in the middle of an analysis."""
+        self.read(np.full((96, 160, 3), 255, np.uint8))
+
+    @staticmethod
+    def _build(device: str, threads: int | None):
         from paddleocr import PaddleOCR
-        self.ocr = PaddleOCR(
+        if device != "cpu":
+            import paddle
+            if not paddle.device.is_compiled_with_cuda():
+                raise RuntimeError("this PaddlePaddle build has no CUDA support")
+        return PaddleOCR(
             text_detection_model_name=DET_MODEL, text_recognition_model_name=REC_MODEL,
             use_doc_orientation_classify=False, use_doc_unwarping=False, use_textline_orientation=False,
+            device=device,
             # oneDNN fails on these models in paddlepaddle 3.3 ("ConvertPirAttribute2RuntimeAttribute")
             enable_mkldnn=False, cpu_threads=threads or int(os.environ.get("RASTA_OCR_THREADS", "8")))
 
@@ -77,7 +106,7 @@ def create_ocr_app(token: str, *, reader=None):
 
     @app.get("/ready")
     def readiness():
-        return {"ready": True}
+        return {"ready": True, "device": getattr(reader, "device", "cpu")}
 
     @app.post("/read", dependencies=[Depends(authenticate)])
     def read(images: list[UploadFile] = File(...)):

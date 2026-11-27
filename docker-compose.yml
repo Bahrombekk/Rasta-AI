@@ -75,8 +75,9 @@ services:
       retries: 5
     networks: [inference]
 
-  # Ixtiyoriy: mahsulot yorlig'idagi yozuvni o'qish (CPU). Yoqish uchun .env ga
+  # Ixtiyoriy: mahsulot yorlig'idagi yozuvni o'qish (GPU, bo'lmasa CPU). Yoqish uchun .env ga
   # RASTA_OCR_URL=http://ocr:8013 yoziladi va `docker compose --profile ocr up -d --build`.
+  # Qaysi qurilmada ishlayotganini `docker compose exec ocr python -m rasta_ocr --selftest` ko'rsatadi.
   ocr:
     profiles: ["ocr"]
     build:
@@ -85,12 +86,14 @@ services:
     restart: unless-stopped
     environment:
       RASTA_AI_TOKEN: "${RASTA_AI_TOKEN:?Set RASTA_AI_TOKEN in .env}"
+      RASTA_OCR_DEVICE: "${RASTA_OCR_DEVICE:-gpu:0}"
       RASTA_OCR_THREADS: "${RASTA_OCR_THREADS:-8}"
+    gpus: all
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8013/ready', timeout=5).close()"]
       interval: 15s
       timeout: 7s
-      start_period: 60s
+      start_period: 120s
       retries: 5
     networks: [inference]
 
