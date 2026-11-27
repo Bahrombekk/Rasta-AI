@@ -483,3 +483,12 @@ def test_ocr_service_falls_back_to_the_cpu_and_says_which_device_it_uses(monkeyp
             return []
 
     assert TestClient(create_ocr_app("t" * 32, reader=Fake())).get("/ready").json() == {"ready": True, "device": "gpu:0"}
+
+
+def test_dockerfile_downloads_the_same_models_the_service_uses():
+    from pathlib import Path
+
+    from rasta_ocr.service import DET_MODEL, REC_MODEL
+    dockerfile = (Path(__file__).resolve().parents[1] / "ocr" / "Dockerfile").read_text(encoding="utf-8")
+    assert f"text_detection_model_name='{DET_MODEL}'" in dockerfile
+    assert f"text_recognition_model_name='{REC_MODEL}'" in dockerfile
