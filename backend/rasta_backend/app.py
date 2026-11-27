@@ -475,6 +475,8 @@ def geometry(result, params=None) -> dict:
             item["v"] = m.candidates[0].get("sku_id")      # shunga o'xshaydi, rangi boshqa
         if item["s"] is None and d.cluster >= 0:
             item["g"] = int(d.cluster)                     # katalogda yo'q, bir-biriga o'xshash qutilar guruhi
+        if d.flavour >= 0:
+            item["f"] = int(d.flavour)                     # brend ichidagi ta'm guruhi
         if params is not None:
             item["why"] = explain(d, params)
         dets.append(item)
@@ -482,7 +484,13 @@ def geometry(result, params=None) -> dict:
         return [[r1(g.x1), r1(g.y1), r1(g.x2), r1(g.y2)] for g in gaps]
 
     roi = [[r1(x), r1(y)] for x, y in result.roi.points] if result.roi is not None else None
-    return {"detections": dets, "gaps": gap_boxes(result.gaps),
+    flavours: dict[int, dict] = {}
+    for i, d in enumerate(result.detections):
+        if d.flavour >= 0 and d.match is not None:
+            group = flavours.setdefault(d.flavour, {"id": d.flavour, "brand": d.match.brand, "label": d.flavour_label,
+                                                    "boxes": []})
+            group["boxes"].append(i)
+    return {"detections": dets, "gaps": gap_boxes(result.gaps), "flavours": list(flavours.values()),
             "suspect_gaps": gap_boxes(result.suspects), "divider_gaps": gap_boxes(result.dividers),
             "roi": roi}
 

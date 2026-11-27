@@ -871,3 +871,28 @@ chegarada yomonroq: bitta mahsulotning crop'lari yorug'lik va burchak tufayli tu
 qamrov 0.89 dan 0.23–0.80 ga tushadi. Rang foydali — lekin klaster tuzilgandan KEYIN dizayni o'xshash guruhni ta'mga
 ajratish uchun (meva rasmi qismining rangi DENA ta'mlarining ko'pini ajratdi), birinchi qadam sifatida emas.
 
+### 11n. Brend ichida ta'm guruhlari (avval brend bo'yicha sanash, keyin ta'm) — 2026-11-27
+
+Foydalanuvchi: "avval brend bo'yicha sanaymiz, keyin ta'mni ajratamiz". Brend aniq, ta'mi noma'lum qutilar
+(umumiy brend yozuviga qo'shilganlar va brend darajasida qolganlar) endi brend ichida ta'mi bo'yicha guruhlanadi
+(`rasta/flavour.py`, `flavour.*` sozlamalari) va tahlil sahifasida "Brend ta'mlari" kartasida ko'rsatiladi: ta'mni
+bossangiz hamma qutisi tanlanadi, nom ("DENA Mango") va brend oldindan to'ldiriladi, bir bosishda alohida mahsulot bo'ladi.
+
+Ikki dalil: (1) qadoqdagi ta'm so'zi — OCR kirillcha so'zni lotin harflariga o'xshatib o'qiydi («AHAHAC» = ананас),
+shuning uchun uz/ru/en sinonimlar jadvali va "ko'rinishi bir xil harflar" solishtirish ishlatiladi; (2) mevaning rangi —
+brend ichida hamma qadoqning dizayni umumiy, farq faqat meva rasmida, shuning uchun rang tasmalaridan guruh ichida
+eng ko'p farq qiladiganiga ko'proq og'irlik beriladi. Yozuvlari kesishmaydigan ikki quti hech qachon bir guruhga
+tushmaydi; yozuvi o'qilmagan quti rang bo'yicha mos guruhga qo'shiladi.
+
+Real javon (Bliss tepa tokcha 11 quti, DENA o'rta tokcha 12 quti, `IMG_6914`):
+
+| Brend | Faqat rang | Rang + yozuv | Izoh |
+|---|---|---|---|
+| DENA (10 ta'm) | 8 guruh | 9 guruh | anor va pomidor yozuv bilan ajraldi; mango bilan o'rik rangi bir xil bo'lgani uchun birga qoldi |
+| Bliss | 5 guruh | 7 guruh | ananas ×3, pomidor, anor, mango yozuvdan; olma va pomidor rang bo'yicha qo'shilib qoladi (olma so'zi o'qilmagan) |
+
+Yozuvdan ta'm so'zi qutilarning taxminan 40% ida o'qildi (bukilmagan kartonlarda ham: so'z kichik harfda bosilgan).
+Natija taklif sifatida beriladi: guruh aralash chiqsa, operator rasmda qutini alohida tanlay oladi. Mahalliy
+tekshiruvda (CPU OCR) butun tahlil bir necha daqiqa oldi; serverning GPU'sida ta'm so'zlarini o'qish bir necha
+soniya (≤60 quti).
+

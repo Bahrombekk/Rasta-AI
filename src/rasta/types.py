@@ -73,6 +73,8 @@ class Detection:
     row: int = -1                   # javon qatori indeksi (0 = tepa)
     cluster: int = -1               # noma'lumlar klasteri (-1 = yo'q / shovqin)
     context_fixed: bool = False     # qo'shnilar konteksti bilan tuzatilganmi
+    flavour: int = -1               # brend ichidagi ta'm guruhi (-1 — ajratilmagan)
+    flavour_label: Optional[str] = None   # guruhning ta'm so'zi (o'qilgan bo'lsa)
     vec: Any = field(default=None, repr=False, compare=False)  # crop embedding (transient)
 
     def to_dict(self) -> dict[str, Any]:

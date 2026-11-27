@@ -118,6 +118,11 @@ export default function Analysis() {
                 <p className="analysis-help" id="groupsHelp"></p>
                 <div className="group-grid" id="groups"></div>
               </section>
+              <section className="card card-pad" id="flavourCard" hidden>
+                <p className="section-title" id="flavourTitle">Brend ta‘mlari</p>
+                <p className="analysis-help" id="flavourHelp"></p>
+                <div id="flavours"></div>
+              </section>
               <section className="card card-pad why-card" id="why" hidden>
                 <p className="section-title">Tanlangan mahsulot</p>
                 <p id="whyText"></p>

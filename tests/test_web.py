@@ -390,6 +390,10 @@ def test_explanation_and_geometry_for_label_mismatch_and_unknown_groups():
     result = SimpleNamespace(detections=[other, sibling, known], gaps=[], suspects=[], dividers=[], roi=None)
     items = web.geometry(result, params)["detections"]
     assert items[0]["g"] == 3 and items[0]["s"] is None            # katalogda yo'q, guruhi bor
+    sibling.flavour, sibling.flavour_label, known.flavour = 0, "ananas", 0
+    shown = web.geometry(result, params)
+    assert shown["flavours"] == [{"id": 0, "brand": "ZARQAND", "label": "ananas", "boxes": [1, 2]}]
+    assert shown["detections"][1]["f"] == 0 and "f" not in shown["detections"][0]
     assert "g" not in items[1] and "g" not in items[2]              # guruhsiz; tanilgan quti guruhlanmaydi
 
 

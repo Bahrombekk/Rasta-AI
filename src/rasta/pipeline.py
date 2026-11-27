@@ -308,6 +308,18 @@ class RastaPipeline:
         elif detections:
             t["ocr_disabled"] = 1.0
 
+        # 5c. Brend ichida ta'm guruhlari: avval brend bo'yicha sanaladi, keyin ta'mi ajratiladi
+        if cfg.get("flavour.enabled", True) and detections and colors is not None:
+            from .flavour import assign_flavours
+
+            t_flavour = time.perf_counter()
+            reader = self.label_reader if (self.label_reader is not None and cfg.get("ocr.enabled", True)
+                                           and cfg.get("flavour.ocr", True)) else None
+            t["flavour_groups"] = assign_flavours(
+                detections, colors, reader=reader, image=image, hires=hires,
+                threshold=float(cfg.get("flavour.threshold", 0.06)), max_boxes=int(cfg.get("flavour.max_boxes", 60)))
+            t["flavour"] = (time.perf_counter() - t_flavour) * 1000
+
         # 6. Noma'lumlarni klasterlash
         clusters: dict = {}
         if cfg.get("clustering.enabled", True) and vectors is not None:

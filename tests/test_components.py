@@ -713,3 +713,37 @@ def test_catalog_build_kmeans_and_merge():
     assert len(st) == 3 and all(s.size == 60 for s in st)
     ex = pick_examples(st[0], outlets, 12)
     assert len(ex) == 12 and len({outlets[i] for i in ex}) == 12   # turli do'konlardan
+
+
+def test_flavours_of_one_brand_are_grouped_by_colour_and_label_word():
+    from rasta.flavour import assign_flavours, flavour_key, group_flavours, flavour_name
+    from rasta.types import Detection, Match
+
+    # ta'm so'zi: kirill so'zi lotin harflariga o'xshab o'qilsa ham («AHAHAC» = ананас), chetga tegsa — tashlanadi
+    line = lambda text, x1=0.2, x2=0.8, size=0.08, conf=0.95: [text, conf, x1, x2, size]  # noqa: E731
+    assert flavour_key([line("AHAHAC"), line("TOMAT")]) == frozenset({"ananas", "pomidor"})
+    assert flavour_key([line("TOMAT", x1=0.0)]) == frozenset()
+    assert flavour_key([line("TOMAT", conf=0.5), line("Bliss")]) == frozenset()
+    assert flavour_name([frozenset({"ananas"}), frozenset({"ananas"}), frozenset({"anor"}), frozenset()]) == "ananas"
+
+    red, yellow = (220, 40, 60), (240, 210, 40)
+    colors = np.stack([color_descriptor(solid(c)) for c in (red, red, red, yellow, yellow)])
+    # bir xil rangdagi ikki ta'm so'zi bilan ajraladi, so'zsiz quti rang bo'yicha mos guruhga qo'shiladi
+    keys = [frozenset({"anor"}), frozenset({"pomidor"}), frozenset(), frozenset(), frozenset({"ananas"})]
+    labels = group_flavours(colors, keys)
+    assert labels[0] != labels[1] and labels[3] == labels[4]
+    assert labels[2] in (labels[0], labels[1]) and labels[0] not in (labels[3], labels[4])
+    assert group_flavours(colors, [frozenset()] * 5) == group_flavours(colors, [frozenset()] * 5)
+
+    def det(i, fam, color):
+        match = Match("dena" if fam else None, "DENA" if fam else None, 0.8, 0.5, fam, brand="DENA",
+                      level="sku" if fam else "brand", family=fam)
+        return Detection(box=Box(i * 10, 0, i * 10 + 8, 30, 1.0), match=match)
+
+    boxes = [det(i, i < 3, None) for i in range(5)]
+    other = Detection(box=Box(100, 0, 108, 30, 1.0), match=Match("x", "X", 0.9, 0.5, True, brand="Other", level="sku"))
+    found = assign_flavours(boxes + [other], np.concatenate([colors, colors[:1]]))
+    shown = [b.flavour for b in boxes]
+    assert found == 2 and shown[0] == shown[1] == shown[2] != shown[3] == shown[4] >= 0   # rang bo'yicha ikki guruh (OCR yo'q)
+    assert other.flavour == -1                                     # bitta quti — brend ichida ajratadigan narsa yo'q
+    assert assign_flavours(boxes[:1], colors[:1]) == 0

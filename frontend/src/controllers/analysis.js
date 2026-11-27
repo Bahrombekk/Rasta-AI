@@ -6,7 +6,7 @@ export default function mountPage() {
   const previewMaxSide = 1800;
   let drawFrame = 0;
   let file = null, img = null, pts = [], drawing = false, closed = false;
-  let R = null, showBoxes = true, hl = null, hlGroup = null, analysis = null, pendingImage = null;
+  let R = null, showBoxes = true, hl = null, hlGroup = null, hlFlavour = null, analysis = null, pendingImage = null;
   let canTeach = false;
   let activeVisit = null;
   let agent = false;
@@ -254,7 +254,7 @@ export default function mountPage() {
       R.detections.forEach((d, i) => {
         const [x1, y1, x2, y2] = scaledBox(d.b);
         const col = d.s ? R.colors[d.s] : null;
-        if (hlGroup !== null && R.groupOf[i] === hlGroup) {      // ro'yxatda ustiga borilgan guruh
+        if ((hlGroup !== null && R.groupOf[i] === hlGroup) || (hlFlavour !== null && R.flavourOf?.[i] === hlFlavour)) {      // ro'yxatda ustiga borilgan guruh
           ctx.lineWidth = lw * 1.8; ctx.strokeStyle = "#22d3ee"; ctx.fillStyle = "#22d3ee33";
           ctx.fillRect(x1, y1, x2 - x1, y2 - y1); ctx.strokeRect(x1, y1, x2 - x1, y2 - y1); return;
         }
@@ -442,6 +442,7 @@ export default function mountPage() {
     $("wideBtn").hidden = false;
     $("scopeBody").hidden = true; $("scopeToggle").textContent = "Tanlash"; $("scopeToggle").setAttribute("aria-expanded", "false");
     groupsUi();
+    flavourUi();
     $("gapLegend").innerHTML = gapLayers
       .filter(({ key }) => d[key]?.length)
       .map(({ key, color, label }) => `<li><span style="--gap-color:${color}"></span>${label} · ${d[key].length}</li>`)
@@ -578,14 +579,25 @@ export default function mountPage() {
   // ---------- javondan o'rgatish ----------
   const token = () => { try { return sessionStorage.getItem("rasta-admin") || ""; } catch (e) { return ""; } };
   let products = [];
-  async function loadProducts() {
-    try {
-      const response = await rastaFetch("/api/products");
-      products = response.ok ? (await response.json()).products : [];
-    } catch (e) { products = []; }
-    $("teachSku").innerHTML = products.map(p => `<option value="${esc(p.sku_id)}">${esc(p.name)}${p.brand ? " · " + esc(p.brand) : ""}</option>`).join("")
-      + `<option value="__new">+ Yangi mahsulot</option>`;
-    $("teachNew").hidden = $("teachSku").value !== "__new";
+  let productsLoading = null;       // bir vaqtda bir necha chaqiruv ro'yxatni bir-birining ustiga yozmasin
+  function loadProducts() {
+    return productsLoading ||= (async () => {
+      try {
+        const response = await rastaFetch("/api/products");
+        products = response.ok ? (await response.json()).products : [];
+      } catch (e) { products = []; }
+      $("teachSku").innerHTML = products.map(p => `<option value="${esc(p.sku_id)}">${esc(p.name)}${p.brand ? " · " + esc(p.brand) : ""}</option>`).join("")
+        + `<option value="__new">+ Yangi mahsulot</option>`;
+      $("teachNew").hidden = $("teachSku").value !== "__new";
+    })().finally(() => { productsLoading = null; });
+  }
+  // Guruhni tanlagach: «Yangi mahsulot» rejimi (ro'yxat yuklanmagan bo'lsa avval yuklanadi), nom va brend to'ldiriladi
+  async function startNewProduct(name = "", brand = "") {
+    if (!$("teachSku").querySelector('option[value="__new"]')) await loadProducts();
+    $("teachSku").value = "__new"; $("teachNew").hidden = false;
+    if (name) $("teachName").value = name;
+    if (brand) $("teachBrand").value = brand;
+    $("teach").scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
   $("teachSku").onchange = () => { $("teachNew").hidden = $("teachSku").value !== "__new"; };
   // Katalogda yo'q, lekin bir-biriga o'xshash qutilar guruhlari: bitta bosishda hammasi tanlanadi
@@ -623,7 +635,50 @@ export default function mountPage() {
         const all = list.every(i => sel.has(i));
         list.forEach(i => all ? sel.delete(i) : sel.add(i));
         picked = -1; whyUi(); teachUi(); draw();
-        if (!all) { $("teachSku").value = "__new"; $("teachNew").hidden = false; $("teach").scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+        if (!all) startNewProduct();
+      };
+    });
+  }
+  // Brend ichida ta'm guruhlari: avval brend bo'yicha sanaladi, keyin ta'mi ajratiladi
+  function flavourUi() {
+    const flavours = R.data.flavours || [];
+    R.flavourOf = {};
+    flavours.forEach(group => group.boxes.forEach(i => { R.flavourOf[i] = group.id; }));
+    $("flavourCard").hidden = !flavours.length;
+    if (!flavours.length) return;
+    const byBrand = new Map();
+    flavours.forEach(group => byBrand.set(group.brand, [...(byBrand.get(group.brand) || []), group]));
+    $("flavourTitle").textContent = `Brend ta‘mlari · ${byBrand.size} brend`;
+    $("flavourHelp").textContent = "Brendi aniq, lekin ta’mi aniqlanmagan qutilar ta’mi bo‘yicha guruhlandi."
+      + (canTeach ? " Ta’mni bossangiz hamma qutisi tanlanadi, nom bersangiz alohida mahsulot bo‘ladi." : "");
+    const cap = text => text ? text[0].toUpperCase() + text.slice(1) : "";
+    $("flavours").innerHTML = [...byBrand].map(([brand, groups]) => `
+      <div class="flavour-brand"><div class="scope-brand"><span>${esc(brand)}</span><span>${groups.reduce((sum, g) => sum + g.boxes.length, 0)} ta · ${groups.length} ta‘m</span></div>
+        <div class="group-grid">${groups.map(group => `
+          <button class="group-tile" type="button" data-flavour="${group.id}" aria-pressed="false"
+            aria-label="${esc(brand)} ${esc(group.label || "ta‘mi noma‘lum")}: ${group.boxes.length} ta quti"
+            title="${esc(group.label || "ta‘mi o‘qilmagan")} · ${group.boxes.length} ta quti">
+            <canvas width="112" height="112" aria-hidden="true"></canvas><b>${group.boxes.length}</b>
+            ${group.label ? `<i class="tile-label">${esc(cap(group.label))}</i>` : ""}
+          </button>`).join("")}</div></div>`).join("");
+    const imageScale = [img.naturalWidth / R.data.size[0], img.naturalHeight / R.data.size[1]];
+    const byId = new Map(flavours.map(group => [group.id, group]));
+    $("flavours").querySelectorAll("[data-flavour]").forEach(tile => {
+      const group = byId.get(Number(tile.dataset.flavour)), list = group.boxes;
+      const area = i => { const [x1, y1, x2, y2] = R.detections[i].b; return (x2 - x1) * (y2 - y1); };
+      const [x1, y1, x2, y2] = R.detections[list.reduce((a, b) => area(b) > area(a) ? b : a)].b.map((value, i) => value * imageScale[i % 2]);
+      const thumb = tile.querySelector("canvas"), side = Math.max(x2 - x1, y2 - y1), fit = thumb.width / side;
+      const paint = thumb.getContext("2d"); paint.fillStyle = "#e8eee9"; paint.fillRect(0, 0, thumb.width, thumb.height);
+      const w = (x2 - x1) * fit, h = (y2 - y1) * fit;
+      paint.drawImage(img, x1, y1, x2 - x1, y2 - y1, (thumb.width - w) / 2, (thumb.height - h) / 2, w, h);
+      tile.onmouseenter = () => { hlFlavour = group.id; draw(); };
+      tile.onmouseleave = () => { hlFlavour = null; draw(); };
+      tile.onclick = () => {
+        if (!canTeach) return;
+        const all = list.every(i => sel.has(i));
+        list.forEach(i => all ? sel.delete(i) : sel.add(i));
+        picked = -1; whyUi(); teachUi(); draw();
+        if (!all) startNewProduct(`${group.brand} ${cap(group.label)}`.trim(), group.brand);    // nom — «Brend Ta’m»
       };
     });
   }
@@ -633,9 +688,13 @@ export default function mountPage() {
       const list = R?.groups?.[Number(tile.dataset.group)] || [];
       tile.setAttribute("aria-pressed", String(list.length > 0 && list.every(i => sel.has(i))));
     });
+    document.querySelectorAll("#flavours .group-tile").forEach(tile => {
+      const list = R?.data?.flavours?.find(g => g.id === Number(tile.dataset.flavour))?.boxes || [];
+      tile.setAttribute("aria-pressed", String(list.length > 0 && list.every(i => sel.has(i))));
+    });
     $("teachTitle").textContent = `Tanlangan: ${sel.size} ta mahsulot`;
     $("teachErr").textContent = "";
-    if (sel.size === 1 && !products.length) loadProducts();
+    if (sel.size >= 1 && !products.length) loadProducts();
     if (sel.size && R) {                       // tanlangan qutilar tanilgan bo'lsa — o'sha mahsulotni oldindan tanlash
       const s0 = R.detections[[...sel][0]].s;
       if (s0 && products.some(p => p.sku_id === s0)) $("teachSku").value = s0;

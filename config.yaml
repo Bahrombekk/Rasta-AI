@@ -181,6 +181,14 @@ clustering:
   recovery_max_distance: 0.20  # guruhsiz crop'larni qo'shish chegarasi (kosinus); null — oddiy HDBSCAN
   split_label_colors: true    # baland qadoqlardagi aniq rang farqini klaster ichida tekshirish
 
+flavour:
+  # Brend ichida ta'm guruhlari: brendi aniq, ta'mi noma'lum qutilar (umumiy brend yozuvi, brend darajasi) ta'mi
+  # bo'yicha guruhlanadi — rang (meva rasmi) + qadoqdagi ta'm so'zi (OCR, GPU'da tez). Operator har guruhga bir marta nom beradi.
+  enabled: true
+  ocr: true             # ta'm so'zi o'qiladimi (yoqilmasa faqat rang)
+  threshold: 0.06       # rang guruhlari chegarasi (kosinus masofasi)
+  max_boxes: 60         # ta'm so'zi o'qiladigan qutilar soni (kattalari birinchi)
+
 roi:
   # Poligon (zona) bo'yicha tahlil: tools/roi_editor.html da chiziladi.
   target_long: 1280     # zona shu o'lchamgacha kattalashtiriladi (mayda mahsulotlar uchun)
