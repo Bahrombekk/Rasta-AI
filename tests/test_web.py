@@ -316,6 +316,8 @@ def test_explanation_and_geometry_for_label_mismatch_and_unknown_groups():
     assert web.explain(other, params) == {"n": "COOKIES", "sc": 0.7, "tau": web.explain(known, params)["tau"],
                                           "m": 0.7, "r": "label", "w": "Florida"}
     assert web.explain(sibling, params)["r"] == "label_brand" and web.explain(sibling, params)["w"] == "MANGO"
+    sibling.match.mismatch_kind = "flavor"
+    assert web.explain(sibling, params)["r"] == "label_flavor"
     result = SimpleNamespace(detections=[other, sibling, known], gaps=[], suspects=[], dividers=[], roi=None)
     items = web.geometry(result, params)["detections"]
     assert items[0]["g"] == 3 and items[0]["s"] is None            # katalogda yo'q, guruhi bor

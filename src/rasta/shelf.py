@@ -58,6 +58,24 @@ def _band(dets: list[Detection]) -> tuple[float, float, float]:
     return y1, y2, y2 - y1
 
 
+def _looks_like_reflected_row(row: list[Detection], foreground: list[Detection]) -> bool:
+    """Find weak, tiny detections at multiple levels between tall foreground products."""
+    if len(row) < 4 or any(d.box.score >= 0.30 for d in row):
+        return False
+    height = float(np.median([d.box.height for d in row]))
+    bottoms = sorted(d.box.y2 for d in row)
+    if max(np.diff(bottoms)[1:-1]) < 0.5 * height:
+        return False
+    left = min(d.box.x1 for d in row)
+    right = max(d.box.x2 for d in row)
+    top = min(d.box.y1 for d in row)
+    bottom = max(bottoms)
+    flanks = [d.box for d in foreground
+              if d.box.score >= 0.50 and d.box.height >= 4 * height
+              and d.box.y1 <= top and d.box.y2 >= bottom + height]
+    return any(box.x2 <= left for box in flanks) and any(box.x1 >= right for box in flanks)
+
+
 def mark_background_rows(
     detections: list[Detection],
     num_rows: int,
@@ -73,6 +91,9 @@ def mark_background_rows(
         for s, (sy1, sy2, sh) in bands.items():
             if s == r or h >= height_ratio * sh:
                 continue
+            if _looks_like_reflected_row(rows[r], rows[s]):
+                bg.add(r)
+                break
             # Fon qatori kattaroq qatordan ancha siyrak bo'ladi (bir nechta bo'yin);
             # kichik mahsulotli haqiqiy qatorda esa mahsulotlar odatda ko'proq.
             if len(rows[r]) >= 0.5 * len(rows[s]):
@@ -94,22 +115,27 @@ def mark_cut_rows(
     edge_frac: float = 0.006,
     touch_frac: float = 0.6,
     height_ratio: float = 0.5,
+    *,
+    ignored_rows: set[int] | None = None,
 ) -> set[int]:
     """Kadr cheti kesib ketgan qatorlar: yuqoridagi javon mahsulotlarining pastki bo'lagi
     (yoki pastdagisining tepasi). Belgisi — qutilarining ko'pi rasm chetiga tegadi VA ular
     qo'shni qatordagidan ancha past (to'liq ko'ringan qator esa chetga tegsa ham o'z
     bo'yida bo'ladi). Bunday bo'laklar tanilmaydi, sanalmaydi va bo'sh joy bermaydi."""
-    rows = {r: [d for d in detections if d.row == r] for r in range(num_rows)}
+    rows = {r: [d for d in detections if d.row == r]
+            for r in range(num_rows) if ignored_rows is None or r not in ignored_rows}
+    occupied = [r for r, ds in rows.items() if ds]
     cut: set[int] = set()
-    for r, ds in rows.items():
-        if not ds:
-            continue
+    for i, r in enumerate(occupied):
+        ds = rows[r]
         top = float(np.mean([d.box.y1 <= edge_frac * image_height for d in ds]))
         bottom = float(np.mean([d.box.y2 >= (1 - edge_frac) * image_height for d in ds]))
         if max(top, bottom) < touch_frac:
             continue
-        neighbour = rows.get(r + 1 if top >= bottom else r - 1)
-        if neighbour and _band(ds)[2] < height_ratio * _band(neighbour)[2]:
+        neighbour = i + 1 if top >= bottom else i - 1
+        if not 0 <= neighbour < len(occupied):
+            continue
+        if _band(ds)[2] < height_ratio * _band(rows[occupied[neighbour]])[2]:
             cut.add(r)
     return cut
 

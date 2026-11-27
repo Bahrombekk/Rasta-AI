@@ -15,8 +15,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from rasta.calibrate import Rec, fit_thresholds, open_accuracy, report
 from rasta.catalog import RecognitionParams, SkuCatalog
-from rasta.cluster import build_cluster_features, cluster_features, purity_and_coverage
-from rasta.context import smooth_with_context
+from rasta.cluster import (build_cluster_features, cluster_features, cluster_unknown_features,
+                           purity_and_coverage, recover_noise, split_label_colors, split_mixed_labels)
+from rasta.config import Config
+from rasta.context import recover_cluster_brands, recover_occluded_family, smooth_with_context
 from rasta.detector import suppress_nested
 from rasta.features import (COLOR_DIM, color_descriptor, color_similarity,
                             shape_similarity)
@@ -128,6 +130,48 @@ def test_variant_when_only_the_colour_differs():
     kpi = compute_kpi([d], [], 1)
     assert kpi["num_known"] == 0 and kpi["num_variant"] == 1 and kpi["num_variant_no_brand"] == 0
     assert kpi["brand_share"]["micco"]["facings"] == 1
+
+
+def test_single_generic_entry_counts_a_variant_and_scope_cannot_hide_other_skus():
+    cat = SkuCatalog(dim=4, path=":memory:", collection="family")
+    vector = np.array([[1.0, 0.0, 0.0, 0.0]], dtype=np.float32)
+    green = color_descriptor(solid((90, 200, 60)))
+    lime = color_descriptor(solid((150, 200, 60)))
+    color_similarity = float(green @ lime)
+    params = RecognitionParams(sim_threshold=0.5, min_margin=0.0,
+                               color_min=color_similarity - 0.05, color_same=color_similarity + 0.01)
+    cat.add_sku("nash", "Nash Sad", vector, extra={"brand": "nash sad"}, colors=green[None, :])
+    [match] = cat.search(vector, params, lime[None, :])
+    assert match.is_known and match.family and match.sku_id == "nash"
+    unrelated = np.array([[0.0, 1.0, 0.0, 0.0]], dtype=np.float32)
+    assert not cat.search(unrelated, params, lime[None, :])[0].is_known
+
+    cat.add_sku("pear", "Nash Sad Nok", vector, extra={"brand": "Nash Sad"}, colors=lime[None, :])
+    [scoped] = cat.search(vector, params, lime[None, :], allowed={"nash"})
+    assert not scoped.is_known and not scoped.family and scoped.level == "brand"
+    assert scoped.candidates[0]["brand_reference"]
+
+
+def test_brand_reference_groups_back_label_and_exact_flavors_use_separate_skus():
+    from rasta.kpi import compute_kpi
+
+    cat = SkuCatalog(dim=3, path=":memory:", collection="brand-first")
+    vectors = np.eye(3, dtype=np.float32)
+    cat.add_sku("micco", "Miccoco", vectors[0], extra={"brand": "Miccoco"})
+    cat.add_sku("pear", "Miccoco Nok", vectors[1], extra={"brand": "miccoco"})
+    cat.add_sku("mango", "Miccoco Mango", vectors[2], extra={"brand": "Miccoco"})
+    params = RecognitionParams(sim_threshold=0.6, brand_margin=0.04, brand_rival_margin=0.03)
+    for local in (True, False):
+        cat.is_local = local
+        matches = cat.search(vectors, params)
+        assert [(m.level, m.sku_id) for m in matches] == [("brand", None), ("sku", "pear"), ("sku", "mango")]
+        dets = [Detection(Box(i, 0, i + 1, 1), match=m) for i, m in enumerate(matches)]
+        brand = next(iter(compute_kpi(dets, [], 1)["brand_share"].values()))
+        assert brand["facings"] == 3 and brand["unresolved_facings"] == 1
+        assert set(brand["sku_ids"]) == {"pear", "mango"}
+
+    cat.add_sku("rival", "Other juice", vectors[0], extra={"brand": "Other"})
+    assert cat.search(vectors[0], params)[0].level is None
 
 
 def test_embedding_floor_stops_colour_carrying_a_weak_match():
@@ -282,6 +326,43 @@ def test_context_preserves_brand_and_negative_veto():
     assert match.level == "sku"
 
 
+def test_occluded_family_requires_a_close_overlap_and_respects_negative_evidence():
+    ref = Detection(Box(0, 0, 100, 250), row=2, vec=np.array([1.0, 0.0]))
+    ref.match = _m("nash", True, [("nash", 0.84)])
+    ref.match.family = True
+    ref.match.score = 0.84
+    partial = Detection(Box(80, 25, 150, 245), row=2, vec=np.array([0.8, 0.6]))
+    partial.match = _m(None, False, [("nash", 0.74)])
+    partial.match.score = 0.74
+    other = Detection(Box(150, 25, 220, 245), row=2, vec=partial.vec)
+    other.match = _m(None, False, [("nash", 0.74)])
+    other.match.score = 0.74
+    params = RecognitionParams(sim_threshold=0.76, neg_margin=0.03)
+    colors = np.ones((3, 1))
+    partial.match.negative_score = 0.80
+    assert recover_occluded_family([ref, partial, other], colors, params) == 0
+    partial.match.negative_score = 0.75
+    assert recover_occluded_family([ref, partial, other], colors, params) == 1
+    assert partial.match.sku_id == "nash" and partial.context_fixed and not other.match.is_known
+
+
+def test_cluster_can_confirm_brand_without_guessing_sku_or_overriding_a_rival(monkeypatch):
+    dets = [Detection(Box(i * 30, 0, i * 30 + 25, 100), row=0) for i in range(5)]
+    for det in dets[:3]:
+        det.match = Match("bliss-apple", "Bliss Olma", 0.88, 0.15, True, brand="Bliss", level="sku")
+    for score, det in zip((0.62, 0.72), dets[3:]):
+        det.match = Match(None, None, 0.74, 0.02, False, [
+            {"sku_id": "bliss-apple", "brand": "Bliss", "score": 0.74, "color": 0.9},
+            {"sku_id": "dena-apple", "brand": "DENA", "score": score, "color": 0.9},
+        ])
+    monkeypatch.setattr("rasta.cluster.cluster_unknown_features", lambda *args: np.zeros(5, dtype=int))
+    vectors = colors = np.ones((5, 1))
+    params = RecognitionParams(sim_threshold=0.76, neg_margin=0.03)
+    assert recover_cluster_brands(dets, vectors, colors, [4.0] * 5, Config({}), params) == 1
+    assert (dets[3].match.brand, dets[3].match.level, dets[3].match.sku_id) == ("Bliss", "brand", None)
+    assert not dets[3].match.is_known and dets[4].match.level is None
+
+
 def test_no_detections_leave_oos_unestimated():
     from types import SimpleNamespace
 
@@ -312,6 +393,62 @@ def test_clustering_separates_color_groups():
     r_hyb = purity_and_coverage(cluster_features(f_hyb, 3), truth)
     assert r_hyb["ARI"] > r_dino["ARI"]
     assert r_hyb["purity"] == 1.0
+
+
+def test_two_close_unknown_products_form_a_group():
+    vectors = np.array([[1.0, 0.0], [0.98, 0.2]])
+    cfg = Config({})
+    labels = cluster_unknown_features(vectors, None, None, cfg)
+    assert labels[0] == labels[1] >= 0
+
+    cfg.set("clustering.recovery_max_distance", None)
+    assert cluster_unknown_features(vectors, None, None, cfg).tolist() == [-1, -1]
+
+
+def test_noise_recovery_does_not_merge_a_chain_or_extend_through_new_members():
+    angles = np.deg2rad([0, 2, 30, 60, 90, 120, 180])
+    vectors = np.column_stack([np.cos(angles), np.sin(angles)])
+    initial = np.array([0, 0, -1, -1, -1, -1, -1])
+    labels = recover_noise(vectors, initial, min_size=2, max_distance=0.20)
+
+    assert labels[:3].tolist() == [0, 0, 0]
+    assert (labels[3:6] == -1).sum() == 1
+    assert (labels[3:6] > 0).sum() == 2
+    assert labels[-1] == -1
+    assert initial.tolist() == [0, 0, -1, -1, -1, -1, -1]
+
+
+def test_tall_packages_split_when_lower_label_colors_form_two_groups():
+    crops = []
+    for rgb in [(220, 40, 115), (220, 110, 28)] * 2:
+        crop = solid((30, 145, 50))
+        crop[80:] = rgb
+        crops.append(crop)
+    colors = np.stack([color_descriptor(crop) for crop in crops])
+    labels = np.zeros(4, dtype=int)
+    refined = split_label_colors(labels, colors, np.full(4, 2.4), min_size=2)
+    assert refined[0] == refined[2] != refined[1] == refined[3]
+    assert np.array_equal(split_label_colors(labels, colors, np.full(4, 1.5), 2), labels)
+
+
+def test_background_filter_excludes_small_reflections_between_tall_products():
+    tall = [Detection(Box(x, 10, x + 40, 150, 0.9), row=1) for x in (10, 160)]
+    reflections = [Detection(Box(x, y, x + 12, y + 20, 0.2), row=0)
+                   for x, y in ((70, 50), (85, 50), (100, 80), (115, 80))]
+    assert mark_background_rows(reflections + tall, 2) == {0}
+    assert mark_background_rows(reflections + tall[:1], 2) == set()
+    reflections[0].box.score = 0.8
+    assert mark_background_rows(reflections + tall, 2) == set()
+
+
+def test_clear_middle_label_conflict_keeps_repeated_variant_and_leaves_singletons_unassigned():
+    from rasta.features import BINS
+
+    colors = np.zeros((4, COLOR_DIM))
+    colors[np.arange(4), 2 * BINS + np.array([0, 0, 1, 2])] = 1.0
+    vectors = np.tile([1.0, 0.0], (4, 1))
+    labels = np.zeros(4, dtype=int)
+    assert split_mixed_labels(labels, vectors, colors, np.full(4, 3.0), 2).tolist() == [0, 0, -1, -1]
 
 
 # ---- kalibrlash ------------------------------------------------------------

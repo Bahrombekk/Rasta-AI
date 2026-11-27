@@ -33,6 +33,10 @@ from .features import shape_similarity
 from .types import Match
 
 
+def _brand_key(value: str | None) -> str:
+    return " ".join((value or "").casefold().split())
+
+
 @dataclass
 class RecognitionParams:
     sim_threshold: float = 0.55
@@ -62,6 +66,7 @@ class RecognitionParams:
     neg_margin: float | None = None              # javon crop'idan qurilgan SKU
     neg_margin_packshot: float | None = None     # internet/packshot rasmidan qurilgan SKU
     neg_exclude: float = 0.85      # katalogga shunchalik o'xshash baza klasterlari chiqariladi
+    brand_rival_margin: float | None = None  # navbatdagi boshqa brendgacha farq
 
     def limits_for_source(self, source: str | None) -> tuple[float, float, float | None]:
         tau, color_min, neg_margin = self.sim_threshold, self.color_min, self.neg_margin
@@ -106,6 +111,7 @@ class RecognitionParams:
             neg_margin=g("neg_margin", None),
             neg_margin_packshot=g("neg_margin_packshot", None),
             neg_exclude=g("neg_exclude", 0.85),
+            brand_rival_margin=g("brand_rival_margin", None),
         )
 
 
@@ -447,12 +453,16 @@ class SkuCatalog:
                     for v in vectors[k:k + 64]]
             responses.extend(self.client.query_batch_points(self.collection, requests=reqs))
 
+        candidates = (hit.payload for resp in responses for hit in resp.points if hit.payload)
+        brand_entries = (self._brand_entries(self.sku_info().items())
+                         if self._brand_entries((p.get("sku_id"), p) for p in candidates) else {})
         matches = []
         for i, resp in enumerate(responses):
             c = colors[i] if colors is not None else None
             a = aspects[i] if aspects is not None else None
             matches.append(self.decide(resp.points, params, c, a,
-                                       None if neg is None else float(neg[i])))
+                                       None if neg is None else float(neg[i]),
+                                       brand_entries=brand_entries))
         return matches
 
     def _load_cache(self):
@@ -506,6 +516,7 @@ class SkuCatalog:
         from types import SimpleNamespace
 
         G, pays = self._load_cache()
+        brand_entries = self._brand_entries((p.get("sku_id"), p) for p in pays)
         if allowed is not None and len(G):
             keep = [j for j, p in enumerate(pays) if p.get("sku_id") in allowed]
             G, pays = G[keep], [pays[j] for j in keep]
@@ -520,8 +531,23 @@ class SkuCatalog:
             hits = [SimpleNamespace(score=float(S[i, j]), payload=pays[j]) for j in top[i]]
             c = colors[i] if colors is not None else None
             a = aspects[i] if aspects is not None else None
-            out.append(self.decide(hits, params, c, a, None if neg is None else float(neg[i])))
+            out.append(self.decide(hits, params, c, a, None if neg is None else float(neg[i]),
+                                   brand_entries=brand_entries))
         return out
+
+    @staticmethod
+    def _brand_entries(entries) -> dict[str, bool]:
+        """Brand-only entries count the whole family if alone, otherwise supply brand evidence."""
+        by_brand: dict[str, set[str]] = {}
+        generic = set()
+        for sku, entry in entries:
+            brand = _brand_key(entry.get("brand"))
+            if not sku or not brand:
+                continue
+            by_brand.setdefault(brand, set()).add(sku)
+            if _brand_key(entry.get("name")) == brand and not entry.get("barcode"):
+                generic.add(sku)
+        return {sku: len(skus) == 1 for skus in by_brand.values() for sku in skus if sku in generic}
 
     @staticmethod
     def score_hits(hits, params: RecognitionParams, color=None, aspect=None) -> list[dict]:
@@ -559,52 +585,50 @@ class SkuCatalog:
 
     @classmethod
     def decide(cls, hits, params: RecognitionParams, color=None, aspect=None,
-               neg_score: Optional[float] = None) -> Match:
+               neg_score: Optional[float] = None, *, brand_entries: dict[str, bool] | None = None) -> Match:
         if not hits:
             return Match(None, None, 0.0, 0.0, False, [])
+        brand_entries = brand_entries or {}
         ranked = cls.score_hits(hits, params, color, aspect)
+        ranked.sort(key=lambda row: (row["score"], brand_entries.get(row["sku_id"]) is not False), reverse=True)
         top1 = ranked[0]
         score1 = top1["score"]
-        score2 = ranked[1]["score"] if len(ranked) > 1 else 0.0
-        margin = score1 - score2
+        brand = _brand_key(top1.get("brand"))
+        siblings = [r for r in ranked if brand and _brand_key(r.get("brand")) == brand]
+        rival = next((r for r in ranked[1:] if not brand or _brand_key(r.get("brand")) != brand), None)
+        brand_margin = params.brand_rival_margin if params.brand_rival_margin is not None else params.min_margin
 
         tau, cmin, dneg = params.limits_for_source(top1.get("src"))
         # bazadagi biror boshqa mahsulotga ancha ko'proq o'xshasa — noma'lum
         neg_ok = neg_score is None or dneg is None or score1 >= neg_score - dneg
-        same_brand = (len(ranked) > 1 and top1.get("brand") is not None
-                      and ranked[1].get("brand") == top1.get("brand"))
-        need_margin = params.min_margin
-        if same_brand and params.brand_margin is not None:
-            need_margin = max(need_margin, params.brand_margin)
+        top_is_reference = brand_entries.get(top1["sku_id"]) is False
+        runner_up = next((r for r in siblings[1:] if brand_entries.get(r["sku_id"]) is not False), None)
+        # The rival brand and the next flavor are separate decisions.
+        margin = score1 - (runner_up or rival or {"score": 0.0})["score"]
+        need_margin = max(params.min_margin, params.brand_margin or 0.0) if runner_up else params.min_margin
         csame = params.color_same_for(top1.get("src"))
         emin = params.embed_min_for(top1.get("src"))
         emb_ok = emin is None or top1["dino"] >= emin
-        passes = (
-            score1 >= tau
-            and emb_ok
-            and margin >= need_margin
-            and top1["color"] >= cmin
-            and neg_ok
-        )
+        eligible = score1 >= tau and emb_ok and top1["color"] >= cmin and neg_ok
+        brand_clear = bool(brand and eligible and (rival is None or score1 - rival["score"] >= brand_margin))
+        exact_eligible = (brand_clear if brand else eligible) and margin >= need_margin and not top_is_reference
         # Hammasi mos, faqat rang "aynan shu mahsulot" darajasida emas: bir xil dizayndagi
         # boshqa ta'm/tur (yashil kivi o'rniga sariq nok). SKU deb sanalmaydi, lekin
         # operatorga "o'xshaydi, rangi farq qiladi" deb ko'rsatiladi.
-        variant = passes and csame is not None and color is not None and top1["color"] < csame
-        is_known = passes and not variant
+        family = brand_entries.get(top1["sku_id"]) is True
+        variant = exact_eligible and not family and csame is not None and color is not None and top1["color"] < csame
+        is_known = exact_eligible and not variant
+        if brand_clear:
+            ranked = siblings + [r for r in ranked if _brand_key(r.get("brand")) != brand]
         cands = [{k: (round(v, 4) if isinstance(v, float) else v) for k, v in r.items()}
                  for r in ranked[: params.top_k]]
+        for candidate in cands:
+            if brand_entries.get(candidate["sku_id"]) is False:
+                candidate["brand_reference"] = True
         if neg_score is not None and cands:
             cands[0]["neg"] = round(float(neg_score), 4)
-        # Ierarxik qaror: SKU noaniq (margin kichik), lekin top-2 bir brenddan ->
-        # brend darajasida tanildi (brend ulushi KPI'si uchun yetarli, SKU taxmin qilinmaydi).
-        brand_only = (
-            not is_known
-            and score1 >= tau
-            and emb_ok
-            and top1["color"] >= cmin
-            and neg_ok
-            and same_brand
-        )
+        # Brend bosqichi o'tsa, noaniq SKU faqat brend hisobiga kiradi.
+        brand_only = brand_clear and not is_known
         level = "sku" if is_known else ("variant" if variant else ("brand" if brand_only else None))
         return Match(
             sku_id=top1["sku_id"] if is_known else None,
@@ -616,6 +640,7 @@ class SkuCatalog:
             brand=top1.get("brand") if (is_known or brand_only or variant) else None,
             level=level,
             negative_score=neg_score,
+            family=family and is_known,
         )
 
 

@@ -56,21 +56,34 @@ def compute_kpi(
     brand_only = [d for d in detections if d.match and not d.match.is_known
                   and d.match.level in ("brand", "variant") and d.match.brand]
     variants = [d for d in detections if d.match and d.match.level == "variant"]
-    if brand_of or brand_only:
+    if brand_of or brand_only or any(d.match.brand for d in known):
         brand_of = brand_of or {}
         b_facings: dict[str, int] = defaultdict(int)
         b_area: dict[str, float] = defaultdict(float)
+        unresolved: dict[str, int] = defaultdict(int)
+        brand_skus: dict[str, set[str]] = defaultdict(set)
+        names: dict[str, str] = {}
         for d in known:
             brand = brand_of.get(d.match.sku_id) or d.match.brand or "?"
+            brand = names.setdefault(" ".join(brand.casefold().split()), brand)
             b_facings[brand] += 1
             b_area[brand] += d.box.area
+            if d.match.family:
+                unresolved[brand] += 1
+            else:
+                brand_skus[brand].add(d.match.sku_id)
         for d in brand_only:
-            b_facings[d.match.brand] += 1
-            b_area[d.match.brand] += d.box.area
+            brand = d.match.brand
+            brand = names.setdefault(" ".join(brand.casefold().split()), brand)
+            b_facings[brand] += 1
+            b_area[brand] += d.box.area
+            unresolved[brand] += 1
         brand_share = {
             b: {
                 "facings": b_facings[b],
                 "share_pct": round(100.0 * b_area[b] / total_area, 2),
+                "unresolved_facings": unresolved[b],
+                "sku_ids": sorted(brand_skus[b]),
             }
             for b in sorted(b_facings, key=lambda x: b_area[x], reverse=True)
         }

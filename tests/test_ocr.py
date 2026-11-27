@@ -298,6 +298,48 @@ def test_verify_does_nothing_without_sample_words_or_an_answer():
     assert ocr.verify_with_text([box], image, Reader([[]]), WordCatalog(COOKIES)) == 0 and box.match.is_known
 
 
+def test_verified_sku_drops_out_of_catalog_flavor_and_size_even_without_sample_words():
+    class SingleSku:
+        def sku_info(self):
+            return {"nash": {"name": "Наш сад Малина 1 л", "brand": "Наш сад"}}
+
+    image = np.zeros((500, 750, 3), np.uint8)
+    flavor, volume, same, uncertain, variant = [known_box(0.8, x, "nash") for x in range(0, 750, 150)]
+    variant.match = Match(None, None, 0.8, 0.8, False, variant.match.candidates, level="variant")
+    reader = Reader([[big("Наш сад"), big("nok")], [big("Наш сад"), big("500 ml")],
+                     [big("raspberry"), big("1000 ml")], [big("pear", conf=0.6), big("0.51")],
+                     [big("nok")]])
+    assert ocr.verify_with_text([flavor, volume, same, uncertain, variant], image, reader, SingleSku()) == 3
+    assert (flavor.match.level, flavor.match.mismatch_kind, flavor.match.mismatch) == ("brand", "flavor", "nok")
+    assert (volume.match.level, volume.match.mismatch_kind, volume.match.mismatch) == ("brand", "volume", "500 ml")
+    assert same.match.is_known and uncertain.match.is_known
+    assert variant.match.level == "variant" and variant.match.mismatch_kind == "flavor"
+
+
+def test_variant_difference_ignores_crop_edges_and_ambiguous_evidence():
+    def difference(texts):
+        return ocr.variant_difference(texts, "Micco Orange & Mango 1 L", "Micco", strong=0.9, big=0.05)
+
+    assert difference([[*line("PEAR", x1=0.0), 0.15], big("mango and pear")]) is None
+    assert difference([big("1 L"), big("500 ml"), big("ingredients: pear")]) is None
+    assert difference([big("PEAR")]) == ("flavor", "PEAR")
+
+
+def test_generic_family_keeps_same_brand_flavor_but_rejects_foreign_label():
+    class FamilyCatalog:
+        def sku_info(self):
+            return {"nash": {"name": "Nash Sad", "brand": "Nash Sad", "words": ["nash", "sad", "malina"]}}
+
+    same_brand = known_box(0.7, 0, "nash")
+    foreign = known_box(0.75, 150, "nash")
+    same_brand.match.family = foreign.match.family = True
+    reader = Reader([[big("Nash Sad"), big("PEAR")], [big("Florida")]])
+    image = np.zeros((500, 500, 3), np.uint8)
+    assert ocr.verify_with_text([same_brand, foreign], image, reader, FamilyCatalog()) == 1
+    assert same_brand.match.is_known
+    assert not foreign.match.is_known
+
+
 class Reply:
     def __init__(self, count):
         self.count = count

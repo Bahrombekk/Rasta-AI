@@ -731,3 +731,99 @@ ko'proq belgilangan javon (20+ SKU) kerak. Tanilgan qutilar tomonida qo'shni kon
 tanilgan qo'shni orasidagi chegaradagi noma'lum quti — `smooth_with_context`) allaqachon bor;
 kengroq tarqatish (`propagate_blocks`) ilgari o'lchanib rad etilgan.
 
+### 11i. Guruhsiz mahsulotlarni qayta tekshirish
+
+Javon tahlilida HDBSCAN'dan keyin har bir guruhsiz crop dastlabki klaster
+a'zolarigacha bo'lgan o'rtacha kosinus masofasi bo'yicha tekshiriladi. Qolgan
+crop'lardan complete-linkage yordamida ixcham guruhlar tuziladi. Standart
+masofa chegarasi 0.20. 500 yoki undan ko'p noma'lum crop bo'lganda dastlabki
+guruhlar HDBSCAN leaf rejimida kamida beshtadan tuziladi. Qayta tekshirishda
+kichik guruhlar konfiguratsiyadagi `min_cluster_size` bo'yicha qabul qilinadi.
+
+`python scripts/benchmark_clustering.py --compare-production` bu usulni
+avvalgi HDBSCAN bilan bir xil DINOv2 + SigLIP2, rang va shakl vektorlarida
+solishtiradi. RP2K test kesmalaridagi 120 SKU ikki mustaqil SKU to'plamiga
+ajratildi. Quyida holdout natijalari keltirilgan. Noto'g'ri birlashish foizi
+birga klasterlangan juftliklar orasida SKU'si har xil bo'lganlar ulushidir.
+
+| Sinov | B-cubed F1 | Qamrov | Noto'g'ri birlashish |
+|---|---:|---:|---:|
+| 30 crop, 14 guruh | 0.841 → 0.843 | 89.1% → 89.5% | 13.74% → 13.71% |
+| 120 crop, 14 guruh | 0.781 → 0.784 | 90.7% → 92.3% | 6.21% → 6.70% |
+| 240 crop, 14 guruh | 0.690 → 0.712 | 84.9% → 90.7% | 5.53% → 5.82% |
+| 600 crop va 30 SKU, 2 guruh | 0.607 → 0.724 | 81.5% → 89.1% | 6.10% → 3.11% |
+
+RP2K guruhlari dataset kesmalaridan yig'ildi. Alohida real javon sinovida
+(`cola_cans_shelf.jpg`, bo'sh katalog) 71 deteksiyaning 61 tasi SKU
+annotatsiyalariga IoU ≥ 0.5 bilan mos tushdi. Shu 61 qutida ikkala usul ham
+B-cubed F1 1.0 va qamrov 98.4% berdi.
+
+### 11j. Yorliq rangi bo'yicha ajratish va oynadagi aks
+
+Baland qadoqlar klasteri pastki rang tasmasi bo'yicha ikki ixcham guruhga
+ajralganda, har ikkala guruhda yetarli a'zo bo'lsa, klaster ajratiladi.
+Javon qatori filtri ikki tomondagi ancha baland va ishonchli mahsulotlar
+orasida, turli sathlarda turgan juda kichik va past ishonchli qutilarni fon
+sifatida belgilaydi. Kadr chetidagi qator qolgan tayanch qatorlar bilan
+solishtiriladi.
+
+`IMG_6863.JPG` tik holatda va bo'sh katalog bilan tahlil qilindi. Avvalgi
+variantdagi 29 qutidan oynadagi 9 ta aks va yuqori chetdagi 2 ta qisman
+ko'ringan quti hisobdan chiqdi. 18 ta qutidan 17 tasi 4 guruhga tushdi.
+Nash Sad malina va nok variantlari ikkitadan alohida guruhga ajraldi.
+Miccoco va Ays Tea guruhlarida turli ta'mlar aralashgan.
+
+RP2K kesmalarida rang tekshiruvi 30, 120 va 600 kesmali holdout
+natijalarini o'zgartirmadi. 240 kesmali holdoutda B-cubed F1
+0.7119 dan 0.7115 ga tushdi, qamrov 90.74% bo'lib qoldi.
+
+### 11k. Katalogda bitta variant bo'lganda OCR tekshiruvi
+
+`IMG_6863.JPG` dagi 8 ta Nash Sad va Miccoco kesmasi PaddleOCR bilan o'qildi.
+O'qilgan matnlar dastlabki vizual mosliklari shartli ravishda tasdiqlangan
+qutilarda qayta tekshirildi. Sinov katalogida Nash Sad Malina va Miccoco
+Orange Mango bor edi. «nok» va «PEAR» aniq o'qilgan ikkita quti shu SKU'lar
+hisobidan chiqarildi. Bu tekshiruv OCR qarorini o'lchaydi. Vizual matching
+va javondagi barcha ta'mlarni topish aniqligi bu tajribada o'lchanmadi.
+
+### 11l. Qisman yopilgan mahsulot va aralash klaster
+
+`IMG_6863.JPG` to'liq rasmini tahlil qilishda vaqtinchalik katalogga shu
+rasmdan bitta Nash Sad malina namunasi kiritildi. OCR ishlatilmadi.
+Qisman yopilgan nokning katalog balli 0.741 bo'lib, 0.760 chegaradan
+past edi. Shu qatordagi tanilgan nok bilan qutilar qoplanishi, rang
+(0.917) va embedding (0.788) tekshiruvidan so'ng brendning umumiy
+hisobiga kirdi. Nash Sad hisobi 3 tadan 4 taga chiqdi.
+
+Miccoco'da ikki shisha yorlig'ini qamrab olgan bitta kuchsiz quti
+olib tashlandi. Qolgan noma'lum kesmalardan ikki nok bitta klasterga
+tushdi. Apelsin-mango, anor va orqasi ko'ringan yashil shisha guruhsiz
+qoldi. Ays Tea ta'mlari bir guruhda qoldi.
+
+RP2K holdoutda yangi rang tekshiruvi 30, 240 va 600 kesmali sinovlarni
+o'zgartirmadi. 120 kesmali sinovda B-cubed F1 0.7844 dan 0.7838 ga
+tushdi. `photo_2026-10-30_17-38-56.jpg` sinovida 40 quti va klaster
+a'zolari bir xil natija berdi.
+
+### 11m. Avval brend, keyin SKU
+
+`IMG_6863.JPG` tahlili vaqtinchalik Miccoco katalogi bilan, OCR ishlatmasdan
+o'tkazildi. Shu kadrdan olingan uchta old yorliq namunasida 4 ta mahsulot
+tanildi (nok 2, apelsin-mango 1, anor 1). Umumiy Miccoco yozuviga shu
+kadrdagi yashil shishaning orqa yorlig'i qo'shilgach, Miccoco jami 5 ta
+bo'ldi. Yashil shisha brend darajasida qoldi. Bu sinov oqim va hisobni
+tekshiradi, namunalar boshqa kadrlardan olinadigan sinov alohida kerak.
+
+### 11n. Bir klasterdagi qadoqlarni brendga bog'lash
+
+`IMG_6914.JPG` vaqtinchalik Bliss va DENA katalogi bilan, OCR'siz qayta
+tahlil qilindi. Bir qatordagi klaster ko'pchiligi bitta tasdiqlangan
+brendga tegishli bo'lsa, ayrim chegaraga yaqin qutilar mahalliy rang va
+embedding mosligi bilan brand darajasida tasdiqlandi. Raqib brend va
+negativ katalog dalili ham tekshirildi.
+
+Bliss hisobi 7 tadan 10 taga, DENA hisobi 10 tadan 11 taga chiqdi. Yangi
+tasdiqlangan to'rtta qutiga SKU berilmadi. Bliss hisobida 3 ta ananas,
+1 ta olma va 6 ta varianti noaniq quti bor. Qatorning chap tomonida yon
+tomoni ko'ringan, Bliss yozuvi ko'rinmaydigan quti noma'lum qoldi.
+

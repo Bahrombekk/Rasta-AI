@@ -225,7 +225,8 @@ def suppress_nested(boxes: list[Box], contain_thr: float = 0.8) -> list[Box]:
 
     Class-agnostic detektor ba'zan bitta mahsulot uchun "butun" va "qism"
     (masalan faqat yorliq) qutilarini beradi — NMS IoU past bo'lgani uchun
-    ikkalasi qoladi va facings ikki marta sanaladi.
+    ikkalasi qoladi va facings ikki marta sanaladi. Ikki ishonchli, yonma-yon
+    mahsulot yorlig'ini qamrab olgan kuchsiz qism qutisi ham olib tashlanadi.
     """
     if len(boxes) < 2:
         return list(boxes)
@@ -244,7 +245,29 @@ def suppress_nested(boxes: list[Box], contain_thr: float = 0.8) -> list[Box]:
         bigger = (areas > areas[i]) & keep
         if np.any((contain >= contain_thr) & bigger):
             keep[i] = False
+        elif boxes[i].score < 0.30 and _spans_product_labels(boxes[i], boxes):
+            keep[i] = False
     return [b for b, k in zip(boxes, keep) if k]
+
+
+def _spans_product_labels(part: Box, boxes: list[Box]) -> bool:
+    from itertools import combinations
+
+    parents = [box for box in boxes
+               if box.score >= 0.50 and box.height >= 1.3 * part.height
+               and part.y1 >= box.y1 + 0.15 * box.height
+               and min(part.y2, box.y2) - part.y1 >= 0.85 * part.height
+               and min(part.x2, box.x2) - max(part.x1, box.x1) >= 0.25 * part.width]
+    for a, b in combinations(parents, 2):
+        shared = max(0.0, min(a.x2, b.x2) - max(a.x1, b.x1))
+        if shared > 0.25 * min(a.width, b.width):
+            continue
+        covered = (min(part.x2, a.x2) - max(part.x1, a.x1)
+                   + min(part.x2, b.x2) - max(part.x1, b.x1)
+                   - max(0.0, min(part.x2, a.x2, b.x2) - max(part.x1, a.x1, b.x1)))
+        if covered >= 0.85 * part.width:
+            return True
+    return False
 
 
 def merge_split_boxes(boxes: list[Box], iomin_thr: float = 0.5, x_iou: float = 0.6,

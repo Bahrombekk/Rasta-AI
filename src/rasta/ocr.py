@@ -65,6 +65,8 @@ _SYNONYMS = [
     ("gazsiz", "негазированная", "still"), ("gazli", "газированная", "sparkling"),
 ]
 _SYN = {w: group for group in _SYNONYMS for w in group}
+_FLAVORS = {_translit(word.replace("'", "")): group[0] for group in _SYNONYMS
+            if group[0] not in ("gazli", "gazsiz") for word in group}
 _STOP = {"va", "and", "bilan", "the", "new", "pet", "ta'mi", "ta'mli", "vkus", "вкус", "со", "вкусом", "dona", "шт"}
 _UNIT = re.compile(r"(?<![0-9a-zа-я])(\d+(?:[.,]\d+)?)\s*(ml|мл|l|л|g|gr|г|гр|kg|кг)(?![a-zа-я])")
 
@@ -166,6 +168,47 @@ def choose(texts, options: dict[str, tuple[str, Optional[str]]], *, min_conf: fl
 
 def _words(text: str) -> list[str]:
     return [w.strip("'") for w in re.findall(r"[a-zа-яё']+", str(text).lower().translate(_APOS))]
+
+
+def _flavor_tokens(text: str) -> list[str]:
+    return _translit(text.translate(_APOS).replace("'", "")).split()
+
+
+def _flavors(text: str) -> set[str]:
+    return {_FLAVORS[token] for token in _flavor_tokens(text)
+            if token in _FLAVORS}
+
+
+def variant_difference(texts, name: str, brand: Optional[str], *, strong: float,
+                       big: float) -> tuple[str, str] | None:
+    """Compare clearly printed flavor or volume against the catalog SKU name."""
+    expected_ml = name_volume(name)
+    expected_flavors = _flavors(" ".join(keywords(name, brand)))
+    volumes = set()
+    flavors = set()
+    flavor_words = []
+    for line in texts:
+        if (len(line) < 5 or float(line[1]) < strong or float(line[2]) <= 0.03
+                or float(line[3]) >= 0.97):
+            continue
+        text = str(line[0]).strip()
+        size = float(line[4])
+        if expected_ml is not None and size >= big / 2 and _UNIT.fullmatch(text.lower()):
+            ml = name_volume(text)
+            if ml is not None:
+                volumes.add(ml)
+        if expected_flavors and size >= big:
+            tokens = set(_flavor_tokens(text)) - {"and", "va"}
+            found = _flavors(text)
+            if found and tokens <= _FLAVORS.keys():
+                flavors.update(found)
+                flavor_words.append(text)
+    if len(volumes) == 1 and expected_ml not in volumes:
+        ml = next(iter(volumes))
+        return "volume", f"{ml / 1000:g} L" if ml >= 1000 else f"{ml} ml"
+    if flavors and flavors.isdisjoint(expected_flavors):
+        return "flavor", " · ".join(dict.fromkeys(flavor_words))
+    return None
 
 
 def label_words(readings, *, min_conf: float = 0.8, min_size: float = 0.05, limit: int = 60) -> list[str]:
@@ -341,11 +384,11 @@ def refine_with_text(detections, image: np.ndarray, reader, catalog, *, hires=No
     for d in sorted(todo, key=lambda d: -d.box.area):
         m = d.match
         brand = m.brand or (info.get(m.candidates[0].get("sku_id")) or {}).get("brand")
-        near = [c.get("sku_id") for c in m.candidates]
+        near = [c.get("sku_id") for c in m.candidates if not c.get("brand_reference")]
         # Nomzodlar: shu brendning katalogdagi mahsulotlari, lekin faqat ko'rinishi bo'yicha
         # ham yaqin bo'lganlari (top-k ichida) — yozuvning o'zi yetarli dalil emas.
         options = {s: (info[s]["name"], info[s].get("brand")) for s in near
-                   if s in info and (brand is None or info[s].get("brand") == brand)}
+                   if s in info and (brand is None or _translit(info[s].get("brand") or "") == _translit(brand))}
         if len(options) >= 2:
             jobs.append((d, options))
     jobs = jobs[:max_boxes]
@@ -382,9 +425,8 @@ def verify_with_text(detections, image: np.ndarray, reader, catalog, *, hires=No
 
     Eng past balli qutilardan boshlanadi (noto'g'ri mosliklar o'sha yerda to'planadi) va
     `max_boxes` bilan cheklanadi; `risky(match)` berilsa — faqat u True qaytargan (chegaraga
-    yaqin balli) qutilar o'qiladi: har qutini o'qish ~2 s turadi, ishonchli mosliklarda esa
-    xato deyarli uchramaydi. Katalogda namuna yozuvi saqlanmagan mahsulotlar tekshirilmaydi —
-    nomning o'zi bilan solishtirish to'g'ri qutilarni ham rad etardi.
+    yaqin balli) qutilar o'qiladi. Katalog nomidagi aniq ta'm va hajm yozuvi namuna
+    yozuvi yo'q SKU'lar uchun ham tekshiriladi.
     `words_for(sku)` berilsa, namuna yozuvi hali saqlanmagan mahsulotlar uchun u chaqiriladi
     (saqlangan rasmlardan o'qib katalogga yozadi) — bir tahlilda eng ko'pi `max_fill` ta mahsulot:
     eski mahsulotlarni qo'lda qayta o'rgatish shart emas.
@@ -392,24 +434,36 @@ def verify_with_text(detections, image: np.ndarray, reader, catalog, *, hires=No
     info = None
     jobs = []
     filled = 0
-    for d in sorted((d for d in detections if d.match is not None and d.match.is_known
-                     and d.match.text is None and d.match.sku_id
-                     and (risky is None or risky(d.match))), key=lambda d: d.match.score):
+    pending = []
+    for d in detections:
+        match = d.match
+        if match is None or match.text is not None:
+            continue
+        if match.is_known and match.sku_id and (risky is None or risky(match)):
+            pending.append((d, match.sku_id))
+        elif match.level == "variant" and len(match.candidates) == 1:
+            sku = match.candidates[0].get("sku_id")
+            if sku:
+                pending.append((d, sku))
+    for d, sku in sorted(pending, key=lambda item: (not item[0].match.is_known, item[0].match.score)):
+        if len(jobs) >= max_boxes:
+            break
         if info is None:
             info = catalog.sku_info()
-        entry = info.get(d.match.sku_id) or {}
-        if not entry.get("words") and words_for is not None and filled < max_fill and entry:
+        entry = info.get(sku) or {}
+        if d.match.is_known and not entry.get("words") and words_for is not None and filled < max_fill and entry:
             filled += 1
-            got = words_for(d.match.sku_id)
+            got = words_for(sku)
             if got:
                 entry = {**entry, "words": got}
-                info[d.match.sku_id] = entry         # shu tahlildagi boshqa qutilar ham foydalansin
-        if entry.get("words"):
-            own = list(dict.fromkeys(list(entry["words"]) + keywords(entry.get("name") or "", None)
-                                     + [w for w in _words(entry.get("brand") or "") if len(w) >= 3]))
-            jobs.append((d, own, entry.get("brand")))
-            if len(jobs) >= max_boxes:
-                break
+                info[sku] = entry         # shu tahlildagi boshqa qutilar ham foydalansin
+        name, brand = entry.get("name") or "", entry.get("brand")
+        own = []
+        if d.match.is_known and entry.get("words"):
+            own = list(dict.fromkeys(list(entry["words"]) + keywords(name)
+                                     + [w for w in _words(brand or "") if len(w) >= 3]))
+        if own or name_volume(name) is not None or _flavors(" ".join(keywords(name, brand))):
+            jobs.append((d, own, brand, name))
     if not jobs:
         return 0
     source, scale = image, 1.0
@@ -418,12 +472,32 @@ def verify_with_text(detections, image: np.ndarray, reader, catalog, *, hires=No
         source, scale = big_image, big_image.shape[1] / image.shape[1]
     # O'rta o'lcham (1400-1800 px): kichik crop'da (700-900) bukilgan shishadagi yozuv o'qilmay qoladi,
     # 1500-2600 px da esa 2 baravar sekin va kam ham o'qiydi (BENCHMARK.md 11g)
-    results = reader.read([label_crop(source, d.box, scale, min_long=1400, max_long=1800) for d, _, _ in jobs])
+    results = reader.read([label_crop(source, d.box, scale, min_long=1400, max_long=1800) for d, *_ in jobs])
     if results is None:
         return 0
     changed = 0
-    for (d, own, brand), texts in zip(jobs, results):
+    for (d, own, brand, name), texts in zip(jobs, results):
+        difference = variant_difference(texts, name, brand, strong=strong, big=big)
+        if difference is not None:
+            kind, evidence = difference
+            brand_text = _translit(brand or "")
+            brand_seen = brand_text and any(
+                len(t) >= 4 and float(t[1]) >= min_conf and float(t[2]) > 0.03 and float(t[3]) < 0.97
+                and f" {brand_text} " in f" {_translit(str(t[0]))} "
+                for t in texts
+            )
+            level = "brand" if brand_seen else ("variant" if not d.match.is_known else None)
+            d.match = replace(d.match, is_known=False, level=level,
+                              brand=brand if brand_seen else d.match.brand if level == "variant" else None,
+                              mismatch=evidence,
+                              mismatch_kind=kind)
+            changed += 1
+            continue
+        if not d.match.is_known:
+            continue
         verdict, word = judge(texts, own, brand, min_conf=min_conf, strong=strong, big=big, letters=letters)
+        if verdict == "brand" and d.match.family:
+            verdict, word = "support", brand or word
         if verdict == "support" and not word:
             word = own[0] if own else ""
         if verdict == "contradict":

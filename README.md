@@ -33,7 +33,7 @@ Rasm → YOLO detektor (SKU-110K) → ichma-ich qutilarni tozalash
 | `features.py` | Rang (HSV, 4 fazoviy gistogramma, Hellinger) va shakl deskriptorlari |
 | `catalog.py` | Qdrant katalog; gibrid qayta reyting; open-set qaror (rang veto'si, manbaga mos τ, brend darajasi) |
 | `context.py` | Noma'lumni qo'shni SKU bloki bo'yicha ehtiyotkor tuzatish |
-| `cluster.py` | Noma'lumlarni HDBSCAN bilan guruhlash (embedding + rang + shakl) |
+| `cluster.py` | Noma'lumlarni HDBSCAN bilan guruhlash va guruhsiz o'xshash mahsulotlarni qayta tekshirish |
 | `oos.py` | Qator ichidagi bo'shliqlar, bo'linma filtri, rasm bo'yicha tekshiruv |
 | `shelf_lines.py` | Javon chetlari (Hough) → butunlay bo'sh javon zonalari; sahna "frontal"ligi |
 | `augment.py` | 1 packshot → realistik variantlar (onboarding) |
@@ -107,6 +107,19 @@ Brauzerda **http://127.0.0.1:8090/login** ni oching. Super admin **Korxonalar** 
 - Domen bilan chiqarishda frontendni HTTPS reverse proxy ortiga joylashtiring va `RASTA_SECURE_COOKIES=1` belgilang.
 - Lokal frontend uchun Node.js 22.12+ bilan `npm --prefix frontend ci` va `npm --prefix frontend run dev` ni bajaring. Vite API so‘rovlarini odatda `127.0.0.1:8000` ga uzatadi. FastAPI’ni `python scripts/serve.py --api-only` orqali oching. Bitta portda ishlatish uchun frontendni `npm --prefix frontend run build` bilan yig‘ing va `python scripts/serve.py` ni ishga tushiring.
 - Korxonali SQLite rejimi uchun `RASTA_ACCOUNTS_DB` va `RASTA_WORKSPACES=1` belgilang. PostgreSQL bilan ishga tushirish va mavjud bazani ko‘chirish tartibi [SERVER.md](SERVER.md#postgresql) faylida.
+
+OCR yoqilganda, katalog nomida ta’m yoki hajm ko‘rsatilgan SKU uchun qadoqdagi
+aniq zid yozuv alohida ko‘rsatiladi. Masalan, katalogda «Nash Sad malina 1 L»
+bo‘lsa, qadoqda «nok» yoki «500 ml» o‘qilgan mahsulot shu SKU hisobiga kirmaydi.
+Deteksiya tafsilotida o‘qilgan yozuv va katalogdagi eng yaqin mahsulot ko‘rinadi.
+
+Brendning barcha ta’mlarini bitta hisobda yuritish uchun mahsulot nomi va
+brend maydoniga bir xil nom kiriting (masalan, «Nash Sad»). Shu brend katalogda
+bitta yozuv bilan yuritilsa va unda shtrix-kod bo‘lmasa, tanish chegaralaridan
+o‘tgan variantlar umumiy hisobga qo‘shiladi. Brend yoniga ta’m va hajm
+nomi bilan alohida SKU’lar qo‘shilsa, umumiy yozuv brend namunasi bo‘lib
+xizmat qiladi. Orqa yorliq namunasini shu umumiy yozuvga qo‘shish mumkin.
+Tahlilda brend jami, tanilgan variantlar va varianti aniqlanmagan mahsulotlar soni ko‘rinadi.
 
 ## Real ishlatish (buyruq qatori)
 
@@ -204,7 +217,7 @@ Istalgan sozlamani vaqtincha o'zgartirish: `--set recognition.sim_threshold=0.7`
 | `embedder` | ansambl modeli, og'irliklar, har model uchun `resize_mode`/`pooling` |
 | `recognition` | `sim_threshold` (crop katalog, 0.76), `sim_threshold_packshot` (0.65), `w_color` 0.25, `w_shape` 0.05, `color_min` |
 | `onboarding` | packshot augmentatsiyasi |
-| `clustering` | HDBSCAN, rang/shakl og'irliklari |
+| `clustering` | HDBSCAN, rang/shakl og'irliklari, guruhsiz mahsulotlar uchun kosinus masofasi chegarasi |
 | `shelf` | qator anchori, orqa fon filtri |
 | `oos` | bo'shliq chegaralari, rasm tekshiruvi, bo'sh javon zonalari, sahna filtri |
 

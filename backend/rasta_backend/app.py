@@ -398,17 +398,21 @@ def explain(d, params) -> dict:
     if m.is_known and m.text is not None:
         info["r"], info["w"] = "text", m.text
     elif m.is_known:
-        info["r"] = "context" if d.context_fixed else "ok"
+        info["r"] = ("family_context" if d.context_fixed else "family") if m.family else (
+            "context" if d.context_fixed else "ok")
         if m.checked:                       # yorliq yozuvi bo'yicha tekshirilgan: support:<so'z> | silent
             info["lc"] = m.checked
     elif m.mismatch is not None:
         # ko'rinishi o'xshaydi, lekin qadoqdagi yozuv boshqa: label (butunlay boshqa mahsulot)
         # yoki label_brand (brend to'g'ri, mahsulot boshqa); w — qadoqda o'qilgan so'z
         info["r"], info["w"] = ("label_brand" if m.level == "brand" else "label"), m.mismatch
+        if m.mismatch_kind in ("flavor", "volume"):
+            info["r"] = f"label_{m.mismatch_kind}"
     elif m.level == "variant":
         info["r"], info["c"] = "variant", round(float(top.get("color", 0.0)), 3)
     elif m.level == "brand":
-        info["r"] = "brand"
+        info["r"] = "brand_context" if d.context_fixed else "brand"
+        info["brand"] = m.brand
     elif m.score < tau:
         info["r"] = "low"
     elif (emin := params.embed_min_for(top.get("src"))) is not None and float(top.get("dino", 1.0)) < emin:
@@ -459,14 +463,17 @@ def summarize(result, colors: dict[str, str]) -> dict:
     names = {}
     for det in result.detections:
         if det.match and det.match.is_known:
-            names[det.match.sku_id] = (det.match.name, det.match.brand)
+            names[det.match.sku_id] = (det.match.brand, det.match.family)
     products = [{
-        "sku_id": sku, "name": info["name"], "brand": names.get(sku, (None, None))[1],
+        "sku_id": sku, "name": info["name"], "brand": names.get(sku, (None, False))[0],
+        "family": names.get(sku, (None, False))[1],
         "facings": info["facings"], "share_pct": info["share_pct"],
         "color": colors.get(sku, OTHER), "thumb": thumb_url(sku)}
         for sku, info in k["share_of_shelf"].items()]
-    brands = [{"brand": b, "facings": v["facings"], "share_pct": v["share_pct"]}
-              for b, v in k.get("brand_share", {}).items()]
+    brands = [{"brand": b, "facings": v["facings"], "share_pct": v["share_pct"],
+               "unresolved_facings": v.get("unresolved_facings", 0),
+               "products": [p for p in products if p["sku_id"] in v.get("sku_ids", ())]}
+              for b, v in k.get("brand_share", {}).items() if b != "?"]
     known_share = sum(p["share_pct"] for p in products)
     oos = k["oos"]
     return {

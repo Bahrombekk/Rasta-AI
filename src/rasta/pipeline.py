@@ -21,7 +21,7 @@ import numpy as np
 
 from .catalog import RecognitionParams, build_catalog
 from .config import Config, resolve_device
-from .context import smooth_with_context, veto_size_outliers
+from .context import recover_cluster_brands, recover_occluded_family, smooth_with_context, veto_size_outliers
 from .detector import build_detector, merge_split_boxes, suppress_nested
 from .embedder import build_embedder, crop_boxes
 from .features import aspect_ratio, color_descriptors, to_rgb_array
@@ -216,7 +216,7 @@ class RastaPipeline:
         background: list[Detection] = []
         if cfg.get("shelf.drop_background_rows", True) and num_rows > 1:
             bg_rows = mark_background_rows(detections, num_rows)
-            bg_rows |= mark_cut_rows(detections, num_rows, h)
+            bg_rows |= mark_cut_rows(detections, num_rows, h, ignored_rows=bg_rows)
             if bg_rows:
                 background = [d for d in detections if d.row in bg_rows]
                 detections = [d for d in detections if d.row not in bg_rows]
@@ -250,6 +250,8 @@ class RastaPipeline:
                 color_min=self.params.color_min,
                 params=self.params,
             )
+            if colors is not None:
+                recover_occluded_family(detections, colors, self.params)
             if cfg.get("context.propagate_blocks", False):
                 from .context import propagate_identical
                 propagate_identical(
@@ -299,6 +301,8 @@ class RastaPipeline:
         # 6. Noma'lumlarni klasterlash
         clusters: dict = {}
         if cfg.get("clustering.enabled", True) and vectors is not None:
+            if cfg.get("context.enabled", True):
+                recover_cluster_brands(detections, vectors, colors, aspects, cfg, self.params)
             clusters = self._cluster_unknowns(detections, vectors, colors, aspects)
 
         # 7. OOS
@@ -422,19 +426,14 @@ class RastaPipeline:
         )
 
     def _cluster_unknowns(self, detections, vectors, colors, aspects) -> dict:
-        from .cluster import build_cluster_features, cluster_features, summarize
+        from .cluster import cluster_unknown_features, summarize
 
         idx = [i for i, d in enumerate(detections)
                if not (d.match and (d.match.is_known or d.match.level == "brand"))]
         if len(idx) < 2:
             return {}
-        feats = build_cluster_features(
-            vectors[idx], colors[idx], np.asarray(aspects)[idx],
-            color_weight=self.cfg.get("clustering.color_weight", 0.6),
-            shape_weight=self.cfg.get("clustering.shape_weight", 0.3),
-        )
-        labels = cluster_features(
-            feats, min_cluster_size=self.cfg.get("clustering.min_cluster_size", 2))
+        labels = cluster_unknown_features(
+            vectors[idx], colors[idx], np.asarray(aspects)[idx], self.cfg)
         for i, lab in zip(idx, labels):
             detections[i].cluster = int(lab)
         return summarize(labels, idx)

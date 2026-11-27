@@ -61,6 +61,8 @@ class Match:
     # Yozuv bo'yicha tekshiruv natijasi: "support:<so'z>" (mahsulotning o'z so'zi o'qildi) yoki
     # "silent" (aniq narsa o'qilmadi). None — tekshirilmadi (ball yuqori yoki namuna yozuvi yo'q).
     checked: Optional[str] = None
+    mismatch_kind: Optional[str] = None     # "flavor" yoki "volume"
+    family: bool = False                    # katalogdagi yagona umumiy brend yozuvi
 
 
 @dataclass
@@ -94,6 +96,8 @@ class Detection:
                 d["label_text"] = self.match.text
             if self.match.mismatch is not None:
                 d["label_mismatch"] = self.match.mismatch
+            if self.match.mismatch_kind is not None:
+                d["label_mismatch_kind"] = self.match.mismatch_kind
             if self.match.candidates:
                 d["top"] = [{"sku_id": c["sku_id"], "score": round(c["score"], 3)}
                             for c in self.match.candidates[:3]]

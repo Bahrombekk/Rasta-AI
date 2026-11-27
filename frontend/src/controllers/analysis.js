@@ -123,12 +123,17 @@ export default function mountPage() {
       : " Yozuv bo‘yicha tekshirildi, lekin aniq matn o‘qilmadi — ko‘rinishi bo‘yicha qoldirildi.";
     $("whyText").textContent = ({
       ok: `Tanildi: ${why.n}. O‘xshashlik ${pct(why.sc)}, chegara ${pct(why.tau)}.${checked}`,
+      family: `${why.n} umumiy hisobiga qo‘shildi. Katalogda bu brend bitta yozuv bilan yuritiladi.${checked}`,
+      family_context: `${why.n} umumiy hisobiga qo‘shildi. Yonidagi tanilgan mahsulotga o‘xshashligi ham hisobga olindi.${checked}`,
       text: `Yorliqdagi yozuv bo‘yicha aniqlandi: ${why.n}${why.w ? ` (o‘qilgan: «${why.w}»)` : ""}. Brend ko‘rinishidan tanilgan, o‘xshashlik ${pct(why.sc)}.`,
       context: `Qo‘shni mahsulotlarga qarab tanildi: ${why.n} (o‘xshashlik ${pct(why.sc)}, chegara ${pct(why.tau)}).${checked}`,
       variant: `${why.n} ga o‘xshaydi (o‘xshashlik ${pct(why.sc)}), lekin rangi farq qiladi (rang mosligi ${pct(why.c ?? 0)}). Bu shu mahsulotning boshqa ta’mi yoki turi bo‘lishi mumkin — alohida mahsulot sifatida qo‘shing.`,
       label: `Tanilmadi: ko‘rinishi ${why.n} ga o‘xshaydi (o‘xshashlik ${pct(why.sc)}), lekin qadoqda${why.w ? ` «${why.w}»` : " boshqa so‘z"} yozilgan — bu boshqa mahsulot.`,
       label_brand: `Faqat brend aniqlandi: brend yozuvi ${why.n} bilan bir xil, lekin qadoqda${why.w ? ` «${why.w}»` : " boshqa nom"} yozilgan — shu brendning boshqa mahsuloti.`,
-      brand: `Faqat brend aniqlandi: ikki o‘xshash mahsulot orasida farq juda kichik (${pct(why.m)}).`,
+      label_flavor: `Boshqa ta’m aniqlandi. Yorliqda «${why.w}» o‘qildi. Katalogdagi eng yaqin mahsulot — ${why.n}.`,
+      label_volume: `Boshqa hajm aniqlandi. Yorliqda ${why.w} o‘qildi. Katalogdagi eng yaqin mahsulot — ${why.n}.`,
+      brand: `Brend aniqlandi. Ta’m yoki hajmni ishonchli ajratish uchun dalil yetarli emas.`,
+      brand_context: `${why.brand} deb tanildi. Shu klasterdagi tanilgan qadoqlar bilan mos. Ta’mi yoki hajmi noaniq.`,
       empty: "Katalog bo‘sh — taqqoslash uchun mahsulot yo‘q.",
       low: `Tanilmadi: ${near}. Bu mahsulot katalogda yo‘q yoki uning namunasi yetarli emas.`,
       weak: `Tanilmadi: ${near}, lekin bu asosan rangi va shakli o‘xshagani uchun — yorlig‘i va ko‘rinishi mos emas (${pct(why.e ?? 0)}).`,
@@ -409,10 +414,12 @@ export default function mountPage() {
     sel.clear(); picked = -1; teachUi(); whyUi();
     setupSubmission(d.report_id, d.visit_store_id);
 
+    const exactCount = s.products.reduce((count, product) => count + (product.family ? 0 : product.facings), 0);
+    const exactRate = s.num_products ? Math.round(100 * exactCount / s.num_products) : 0;
     const tiles = [
       kpi("box", "Mahsulotlar", s.num_products, `<div class="meter"><i style="width:100%"></i></div>`),
-      kpi("check", "Tanildi", `${s.num_products ? Math.round(s.recognition_rate) : 0}<small>%</small>`,
-          `<div class="meter"><i style="width:${s.recognition_rate}%"></i></div>`, s.num_products && s.recognition_rate >= 80 ? "good" : ""),
+      kpi("check", "SKU tanildi", `${exactRate}<small>%</small>`,
+          `<div class="meter"><i style="width:${exactRate}%"></i></div>`, exactRate >= 80 ? "good" : ""),
     ];
     if (s.fill_pct !== null && s.fill_pct !== undefined)
       tiles.push(kpi("layers", "Qatorlar bandligi", `${Math.round(s.fill_pct)}<small>%</small>`,
@@ -431,11 +438,10 @@ export default function mountPage() {
         <div class="nm" style="font-weight:550;font-size:13.5px"><span class="dot" style="background:${p.color}"></span>${esc(p.name)}</div>
         <div class="r"><b style="font-size:13.5px">${Math.round(p.share_pct)}%</b></div></div>`).join("") +
       (ps.length > 5 ? `<div class="sub" style="padding:4px 8px;color:var(--muted);font-size:12.5px">+ yana ${ps.length - 5} ta</div>` : "") +
-      (s.unknown_share_pct > 0.5 ? `<div class="prow" style="grid-template-columns:minmax(0,1fr) auto;padding:5px 8px"><div class="nm" style="font-weight:500;font-size:13.5px;color:var(--muted)"><span class="dot" style="background:var(--border-strong)"></span>Katalogda yo'q</div><div class="r" style="color:var(--muted);font-size:13.5px">${Math.round(s.unknown_share_pct)}%</div></div>` : "");
+      (s.unknown_share_pct > 0.5 ? `<div class="prow" style="grid-template-columns:minmax(0,1fr) auto;padding:5px 8px"><div class="nm" style="font-weight:500;font-size:13.5px;color:var(--muted)"><span class="dot" style="background:var(--border-strong)"></span>SKU aniqlanmagan</div><div class="r" style="color:var(--muted);font-size:13.5px">${Math.round(s.unknown_share_pct)}%</div></div>` : "");
 
     const max = Math.max(1, ...ps.map(p => p.share_pct));
-    $("plTitle").textContent = ps.length ? `Mahsulotlar · ${ps.length}` : "Mahsulotlar";
-    $("plist").innerHTML = ps.length ? ps.map(p => `
+    const productRow = p => `
       <div class="prow" data-sku="${esc(p.sku_id)}">
         ${p.thumb ? `<img class="th" src="${p.thumb}" alt="">` : '<span class="th"></span>'}
         <div style="min-width:0">
@@ -444,7 +450,23 @@ export default function mountPage() {
           <div class="bar"><i style="width:${100 * p.share_pct / max}%;background:${p.color}"></i></div>
         </div>
         <div class="r"><b>${p.facings} ta</b><div>${p.share_pct.toFixed(1)}%</div></div>
-      </div>`).join("")
+      </div>`;
+    const brands = (s.brands || []).filter(brand => brand.brand !== "?").map(brand => ({
+      ...brand,
+      products: brand.products ?? ps.filter(p => p.brand === brand.brand && !p.family),
+    }));
+    const grouped = new Set(brands.flatMap(brand => brand.products.map(p => p.sku_id)));
+    const otherProducts = ps.filter(p => !p.family && !grouped.has(p.sku_id));
+    $("plTitle").textContent = brands.length ? "Brendlar va variantlar" : "Mahsulotlar";
+    $("plist").innerHTML = brands.length || otherProducts.length ? brands.map(brand => `
+      <div class="prow" style="grid-template-columns:minmax(0,1fr) auto">
+        <div class="nm"><strong>${esc(brand.brand)}</strong></div>
+        <div class="r"><b>${brand.facings} ta jami</b></div>
+      </div>
+      ${brand.products.map(productRow).join("")}
+      ${brand.unresolved_facings ? `<div class="prow" style="grid-template-columns:minmax(0,1fr) auto">
+        <div class="sub">Ta’mi yoki hajmi noaniq</div><div class="r">${brand.unresolved_facings} ta</div>
+      </div>` : ""}`).join("") + otherProducts.map(productRow).join("")
       : `<div class="empty">Katalogdagi mahsulotlar topilmadi.${canTeach ? '<br><a href="/admin">Mahsulot qo‘shish →</a>' : ''}</div>`;
 
     document.querySelectorAll("[data-sku]").forEach(el => {

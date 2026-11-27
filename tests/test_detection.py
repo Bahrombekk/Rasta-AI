@@ -87,6 +87,19 @@ def test_app_logo_filter():
     assert not is_app_logo(img, Box(15, 100, 85, 120))      # rangi yashil emas
 
 
+def test_spanning_label_is_suppressed_only_with_two_confident_full_products():
+    from rasta.detector import suppress_nested
+    from rasta.types import Box
+
+    left = Box(0, 0, 110, 310, 0.85)
+    right = Box(95, 0, 195, 310, 0.79)
+    label = Box(40, 130, 155, 305, 0.12)
+    assert suppress_nested([label, left, right]) == [left, right]
+    assert suppress_nested([label, left]) == [label, left]
+    label.score = 0.8
+    assert suppress_nested([label, left, right]) == [label, left, right]
+
+
 def test_merge_split_boxes_joins_carton_halves_but_not_overlapping_products():
     from rasta.detector import merge_split_boxes
     from rasta.types import Box

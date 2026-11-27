@@ -24,7 +24,52 @@ import numpy as np
 from benchmark_rp2k import RP
 import benchmark_grocery as G
 from rasta.cluster import build_cluster_features, cluster_features, purity_and_coverage
-from rasta.config import ROOT
+from rasta.config import Config, ROOT
+
+
+def compare_production(F, test_indices, truth, config):
+    """Compare clustering methods on disjoint SKU sets with identical cached vectors."""
+    from rasta.cluster import cluster_unknown_features
+
+    dino = G.get_vec(F, test_indices, "dinov2b_crop_cls+mean")
+    siglip = F["siglip2b_stretch_cls"][test_indices]
+    embedding = np.concatenate([np.sqrt(0.4) * dino, np.sqrt(0.6) * siglip], axis=1)
+    colors, aspects = F["color"][test_indices], F["aspect"][test_indices]
+    rng = np.random.default_rng(42)
+    medium_rng = np.random.default_rng(43)
+    mixed_rng = np.random.default_rng(43)
+    sku_splits = np.array_split(rng.permutation(np.unique(truth)), 2)
+    metrics = ("bcubed_f1", "false_merge", "coverage", "ARI")
+    summary = {}
+    for split_name, skus in zip(("calibration", "holdout"), sku_splits):
+        batches_by_size = {
+            "30_skus": [np.flatnonzero(np.isin(truth, group)) for group in np.array_split(skus, 2)]
+        }
+        for name, counts, batch_rng in (
+            ("30_crops", (1, 1, 2, 2, 3, 5, 7, 9), rng),
+            ("120_crops", (2, 3, 4, 5, 7, 9, 11, 13, 15, 15, 16, 20), medium_rng),
+            ("240_crops", (*range(1, 21), 10, 20), mixed_rng),
+        ):
+            batches_by_size[name] = [
+                np.concatenate([batch_rng.choice(np.flatnonzero(truth == sku), count, replace=False)
+                                for sku, count in zip(batch_rng.choice(skus, len(counts), replace=False),
+                                                      counts)])
+                for _ in range(14)
+            ]
+        for name, batches in batches_by_size.items():
+            scores = {"previous": [], "current": []}
+            for idx in batches:
+                vectors, col, asp = embedding[idx], colors[idx], aspects[idx]
+                baseline = cluster_features(build_cluster_features(vectors, col, asp), min_cluster_size=2)
+                current = cluster_unknown_features(vectors, col, asp, config)
+                for method, labels in (("previous", baseline), ("current", current)):
+                    scores[method].append(purity_and_coverage(labels, truth[idx].tolist()))
+            summary[f"{split_name}_{name}"] = {
+                method: {key: round(float(np.mean([row[key] for row in rows])), 4)
+                         for key in metrics}
+                for method, rows in scores.items()
+            }
+    return summary
 
 
 def main():
@@ -33,7 +78,9 @@ def main():
     ap.add_argument("--skus", type=int, default=30, help="Har tajribadagi noma'lum SKU soni")
     ap.add_argument("--min-cluster", type=int, default=3)
     ap.add_argument("--emb", default="siglip2b_stretch_cls")
-    ap.add_argument("--out", default="outputs/benchmark_clustering.json")
+    ap.add_argument("--out", default=None)
+    ap.add_argument("--compare-production", action="store_true",
+                    help="Joriy javon klasterlashini oldingi HDBSCAN bilan solishtirish")
     args = ap.parse_args()
 
     train = sorted((str(p.relative_to(RP)).replace("\\", "/"), int(p.parent.name))
@@ -41,9 +88,18 @@ def main():
     test = sorted((str(p.relative_to(RP)).replace("\\", "/"), int(p.parent.name))
                   for p in (RP / "test").rglob("*.jpg"))
     paths = [p for p, _ in train] + [p for p, _ in test]
-    F = G.compute_features(paths, "rp2k", root=RP)
+    backbones = [b for b in G.BACKBONES if b[0] in ("dinov2b_crop", "siglip2b_stretch")]
+    F = G.compute_features(paths, "rp2k", backbones=backbones if args.compare_production else None, root=RP)
     q = np.arange(len(train), len(paths))
     lab = np.array([c for _, c in test])
+    if args.compare_production:
+        summary = compare_production(F, q, lab, Config.load())
+        result = json.dumps(summary, indent=2)
+        out = ROOT / (args.out or "outputs/benchmark_clustering_production.json")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(result + "\n", encoding="utf-8")
+        print(result)
+        return
     classes = sorted(set(lab.tolist()))
 
     emb = F[args.emb]
@@ -91,7 +147,7 @@ def main():
         summary[name] = {k: round(v, 4) for k, v in s.items()}
         print(f"{name:<28}{s['ARI']:>7.3f}{s['NMI']:>7.3f}{s['purity']:>8.3f}"
               f"{s['coverage']:>9.3f}{s['n_clusters']:>8.1f}")
-    out = ROOT / args.out
+    out = ROOT / (args.out or "outputs/benchmark_clustering.json")
     out.write_text(json.dumps({"args": vars(args), "true_clusters": args.skus,
                                "results": summary}, indent=1, ensure_ascii=False),
                    encoding="utf-8")

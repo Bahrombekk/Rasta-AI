@@ -87,6 +87,7 @@ recognition:
   # bo'lsa SKU uchun kattaroq margin, aks holda faqat brend darajasida tanish.
   # Sinov (4 muzlatgich fotosi, 136 crop): SKU xatolari 20 -> 8, brend tanish o'zgarmadi.
   brand_margin: 0.04
+  brand_rival_margin: 0.025  # boshqa brend bilan farq kichik bo'lsa, brend noaniq qoladi
   top_k: 5
   w_color: 0.25         # rang (HSV, fazoviy gistogramma) og'irligi
   w_shape: 0.05         # tomonlar nisbati (0.33L banka vs 1.5L shisha)
@@ -173,6 +174,8 @@ clustering:
   min_cluster_size: 2
   color_weight: 0.6     # embedding + rang + shakl birlashtirilgan xususiyat
   shape_weight: 0.3
+  recovery_max_distance: 0.20  # guruhsiz crop'larni qo'shish chegarasi (kosinus); null — oddiy HDBSCAN
+  split_label_colors: true    # baland qadoqlardagi aniq rang farqini klaster ichida tekshirish
 
 roi:
   # Poligon (zona) bo'yicha tahlil: tools/roi_editor.html da chiziladi.
