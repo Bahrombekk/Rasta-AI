@@ -237,7 +237,8 @@ def _near(word: str, token: str, ratio: float = 0.7) -> bool:
 
 
 def judge(texts, own: list[str], brand: Optional[str] = None, *, min_conf: float = 0.5,
-          strong: float = 0.9, big: float = 0.05, letters: int = 5) -> tuple[str, str]:
+          strong: float = 0.9, big: float = 0.05, letters: int = 5,
+          dominant: float = 0.25, dominant_conf: float = 0.85) -> tuple[str, str]:
     """Qutidagi yozuv mahsulotning o'z so'zlariga mos keladimi.
 
     texts: [(matn, ishonch, x1, x2, harf o'lchami)]; own: namunadagi so'zlar + nom + brend.
@@ -249,7 +250,9 @@ def judge(texts, own: list[str], brand: Optional[str] = None, *, min_conf: float
     (brend nomi yirik yoziladi, tarkib va belgilar mayda) va mahsulotning o'z so'zlariga
     o'xshamaydigan matn. Bitta 4+ harfli so'z yoki bir necha yirik parchaning jami `letters`
     harfi yetarli: OCR bukilgan shishadagi «Наш сад» ni «Hau» + «cag» deb ikki qisqa parcha
-    qilib o'qiydi.
+    qilib o'qiydi. Qutidagi eng yirik yozuv (harfi kichik tomonning `dominant` ulushidan kam emas —
+    odatda brend nomi) mahsulotning o'z so'ziga o'xshamasa, u qisqa («mic», qo'shni to'sib turgan
+    «Micco») va ishonchi biroz past (`dominant_conf`) bo'lsa ham begona hisoblanadi.
     """
     tokens = [str(t[0]) for t in texts if float(t[1]) >= min_conf]
     if not tokens or not own:
@@ -257,13 +260,19 @@ def judge(texts, own: list[str], brand: Optional[str] = None, *, min_conf: float
     spoken = lambda w: _SYN.get(w, (w,))                      # noqa: E731
     hit = [w for w in own if any(_hit(v, tokens) for v in spoken(w))]
     alien = []
+    title = False
     for t in texts:
         size = float(t[4]) if len(t) > 4 else 0.0
         count = len(re.sub(r"[^a-zа-яё]", "", str(t[0]).lower()))
-        if float(t[1]) >= strong and size >= big and count >= 2 and not any(
-                _near(v, str(t[0])) for w in own for v in spoken(w)):
+        if count < 2 or any(_near(v, str(t[0])) for w in own for v in spoken(w)):
+            continue
+        if float(t[1]) >= strong and size >= big:
             alien.append((size, str(t[0]), count))
-    foreign = any(c >= 4 for _, _, c in alien) or sum(c for _, _, c in alien) >= letters
+        if dominant and float(t[1]) >= dominant_conf and size >= dominant and count >= 3:
+            title = True
+            if not any(a[1] == str(t[0]) for a in alien):
+                alien.append((size, str(t[0]), count))
+    foreign = title or any(c >= 4 for _, _, c in alien) or sum(c for _, _, c in alien) >= letters
     word = max(alien)[1] if alien else ""
     if hit:
         marks = set(_words(brand or ""))

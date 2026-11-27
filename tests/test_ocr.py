@@ -240,9 +240,9 @@ def test_judge_adds_up_short_large_fragments_of_a_curved_label():
     # «Наш сад» bukilgan shishada: «Hau» + «cag» + «new» — har biri qisqa, jami begona yozuv
     fragments = [big("Hau", 0.97, 0.32), big("cag", 0.9, 0.4), big("new", 0.99, 0.25)]
     assert ocr.judge(fragments, COOKIES, "ZARQAND")[0] == "contradict"
-    assert ocr.judge(fragments[:1], COOKIES, "ZARQAND") == ("silent", "")       # bitta qisqa parcha — yetmaydi
+    assert ocr.judge([big("Hau", 0.97, 0.1)], COOKIES, "ZARQAND") == ("silent", "")   # bitta qisqa, yirik emas parcha — yetmaydi
     assert ocr.judge([big("au", 0.99, 0.3), big("ag", 0.99, 0.4)], COOKIES, "ZARQAND") == ("silent", "")   # 4 harf
-    assert ocr.judge(fragments, COOKIES, "ZARQAND", letters=12) == ("silent", "")
+    assert ocr.judge(fragments, COOKIES, "ZARQAND", letters=12, dominant=0) == ("silent", "")
 
 
 def test_judge_keeps_the_brand_when_the_box_names_another_product_of_it():
@@ -492,3 +492,14 @@ def test_dockerfile_downloads_the_same_models_the_service_uses():
     dockerfile = (Path(__file__).resolve().parents[1] / "ocr" / "Dockerfile").read_text(encoding="utf-8")
     assert f"text_detection_model_name='{DET_MODEL}'" in dockerfile
     assert f"text_recognition_model_name='{REC_MODEL}'" in dockerfile
+
+
+def test_judge_counts_a_dominant_foreign_title_even_when_it_is_short_and_not_fully_confident():
+    # Qo'shni to'sgan «Micco»: faqat «mic» (eng yirik yozuv) va «PEA» o'qiladi
+    cut_off = [big("mic", 0.896, 0.337), big("PEA", 0.999, 0.124)]
+    assert ocr.judge(cut_off, ["ays", "tea", "shaftoli"], "Ays Tea")[0] == "contradict"
+    assert ocr.judge(cut_off, ["ays", "tea", "shaftoli"], "Ays Tea", dominant=0)[0] == "silent"
+    # mahsulotning o'z yozuvi yirik bo'lsa — rad etilmaydi
+    assert ocr.judge([big("Ay", 0.99, 0.44), big("bilan", 0.98, 0.059)], ["ays", "tea", "bilan"], "Ays Tea")[0] == "support"
+    # yirik, lekin ishonchi past parcha hisobga olinmaydi
+    assert ocr.judge([big("mic", 0.7, 0.337)], ["ays", "tea"], "Ays Tea")[0] == "silent"
