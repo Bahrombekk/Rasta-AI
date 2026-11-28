@@ -100,61 +100,95 @@ export default function mountPage() {
   }
   // Audit faolligi: kunlik ma'lumot kun / hafta / oy bo'yicha guruhlab ko'rsatiladi.
   const trendUnits = { day: ["Kun", "kuniga"], week: ["Hafta", "haftasiga"], month: ["Oy", "oyiga"] };
-  let trendState = { trend: [], total: 0, unit: null };
+  const trendMetrics = { count: "Auditlar", gaps: "Bo‘sh joylar", rate: "SKU tanish" };
+  let trendState = { trend: [], total: 0, unit: null, metric: "count" };
   const shortDate = day => day.split("-").slice(1).reverse().join(".");
   function trendBuckets(trend, unit) {
-    if (unit === "day") return trend.map(item => ({ label: shortDate(item.day), count: item.count }));
     const buckets = [];
     for (const item of trend) {
       const date = new Date(item.day + "T00:00:00Z");
-      let key = item.day.slice(0, 7);                                   // oy: YYYY-MM
+      let key = item.day;
+      if (unit === "month") key = item.day.slice(0, 7);                 // oy: YYYY-MM
       if (unit === "week") {                                            // hafta: dushanbadan
         date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 6) % 7);
         key = date.toISOString().slice(0, 10);
       }
       let bucket = buckets.at(-1);
-      if (!bucket || bucket.key !== key) buckets.push(bucket = { key, first: item.day, last: item.day, count: 0 });
+      if (!bucket || bucket.key !== key) buckets.push(bucket = { key, first: item.day, last: item.day, count: 0, gaps: 0, products: 0, recognized: 0 });
       bucket.last = item.day;
-      bucket.count += item.count;
+      for (const name of ["count", "gaps", "products", "recognized"]) bucket[name] += item[name] || 0;
     }
-    return buckets.map(bucket => ({
-      count: bucket.count,
-      label: unit === "month" ? bucket.key.split("-").reverse().join(".") : `${shortDate(bucket.first)}–${shortDate(bucket.last)}`,
+    return buckets.map(bucket => ({ ...bucket,
+      label: unit === "day" ? shortDate(bucket.first) : unit === "month" ? bucket.key.split("-").reverse().join(".")
+        : `${shortDate(bucket.first)}–${shortDate(bucket.last)}`,
     }));
   }
   function trendBody() {
-    const { trend, total, unit } = trendState;
+    const { trend, total, unit, metric } = trendState;
     if (!total) return empty("Faollik hali yo‘q", "Yuborilgan auditlar shu yerda paydo bo‘ladi.", "chart");
     const buckets = trendBuckets(trend, unit);
-    const max = Math.ceil(Math.max(1, ...buckets.map(item => item.count)) / 4) * 4;
-    const peak = buckets.reduce((best, item) => item.count > best.count ? item : best, buckets[0]);
-    const average = total / buckets.length;
+    const rate = metric === "rate";
+    const value = bucket => rate ? (bucket.products ? 100 * bucket.recognized / bucket.products : null) : bucket[metric];
+    const show = number => rate ? `${Math.round(number)}%` : count(number);
+    const known = buckets.filter(bucket => value(bucket) != null);
+    const max = rate ? 100 : Math.ceil(Math.max(1, ...known.map(value)) / 4) * 4;
+    const peak = known.reduce((best, item) => value(item) > value(best) ? item : best, known[0]);
+    const sum = name => buckets.reduce((all, bucket) => all + bucket[name], 0);
+    let summary;
+    if (rate) {
+      const products = sum("products");
+      summary = `<span>Davr bo‘yicha <strong>${products ? show(100 * sum("recognized") / products) : "—"}</strong></span>
+        ${peak ? `<span>Eng yuqori: <strong>${show(value(peak))}</strong> (${peak.label})</span>` : ""}
+        <span>Tanildi: <strong>${count(sum("recognized"))}</strong> / ${count(products)} mahsulot</span>`;
+    } else {
+      const whole = sum(metric), average = whole / buckets.length;
+      summary = `<span>O‘rtacha <strong>${average < 10 ? average.toFixed(1) : count(Math.round(average))}</strong> ta ${trendUnits[unit][1]}</span>
+        <span>Eng ko‘p: <strong>${count(value(peak))}</strong> ta (${peak.label})</span><span>Jami: <strong>${count(whole)}</strong></span>`;
+    }
     return `<div class="chart-frame">
-        <div class="chart-ticks" aria-hidden="true">${[max, max*0.75, max*0.5, max*0.25, 0].map(tick => `<span>${count(tick)}</span>`).join("")}</div>
-        <div class="trend-chart" role="img" aria-label="Davr ichida ${count(total)} ta audit yuborilgan">${buckets.map(item =>
-          `<div class="trend-col" title="${item.label} · ${count(item.count)} ta"><i style="--value:${100 * item.count / max}%"></i></div>`).join("")}</div>
+        <div class="chart-ticks" aria-hidden="true">${[max, max*0.75, max*0.5, max*0.25, 0].map(tick => `<span>${show(tick)}</span>`).join("")}</div>
+        <div class="trend-chart" data-metric="${metric}" role="img" aria-label="${trendMetrics[metric]}: davr ichida ${count(total)} ta audit yuborilgan">${buckets.map(item => {
+          const height = value(item);
+          return `<div class="trend-col" title="${item.label} · ${height == null ? "audit yo‘q" : show(height)}"><i style="--value:${height == null ? 0 : 100 * height / max}%"></i></div>`;
+        }).join("")}</div>
         <div class="trend-axis"><span>${buckets[0].label}</span><span>${buckets.at(-1).label}</span></div></div>
-      <p class="trend-summary"><span>O‘rtacha <strong>${average < 10 ? average.toFixed(1) : count(Math.round(average))}</strong> ta ${trendUnits[unit][1]}</span>
-        <span>Eng ko‘p: <strong>${count(peak.count)}</strong> ta (${peak.label})</span><span>Jami: <strong>${count(total)}</strong></span></p>`;
+      <p class="trend-summary">${summary}</p>`;
   }
+  const segmented = (label, name, options, current) => `<div class="segmented" role="group" aria-label="${label}">${options.map(([value, text]) =>
+    `<button type="button" data-trend-${name}="${value}" aria-pressed="${value === current}">${text}</button>`).join("")}</div>`;
   function trendPanel(trend, total, action = "") {
     // davrga mos standart: qisqa davr — kunlik, 90 kun — haftalik, 1 yil — oylik
     const fallback = trend.length > 120 ? "month" : trend.length > 45 ? "week" : "day";
-    trendState = { trend, total, unit: trendState.unit && trendState.length === trend.length ? trendState.unit : fallback, length: trend.length };
+    const detailed = trend.length > 0 && trend[0].gaps !== undefined;       // bo'sh joy va tanish ham kunlar bo'yicha kelgan
+    trendState = { trend, total, unit: trendState.unit && trendState.length === trend.length ? trendState.unit : fallback,
+      metric: detailed ? trendState.metric || "count" : "count", length: trend.length };
     return `<section class="card dashboard-panel trend-panel"><div class="panel-heading"><div><h2>Audit faolligi</h2>
       <p>Yuborilgan hisobotlar · Toshkent vaqti</p></div>
-      <div class="trend-tools"><div class="segmented" role="group" aria-label="Guruhlash">${Object.entries(trendUnits).map(([unit, [label]]) =>
-        `<button type="button" data-trend-unit="${unit}" aria-pressed="${unit === trendState.unit}">${label}</button>`).join("")}</div>${action}</div></div>
+      <div class="trend-tools">${detailed ? segmented("Ko‘rsatkich", "metric", Object.entries(trendMetrics), trendState.metric) : ""}
+        ${segmented("Guruhlash", "unit", Object.entries(trendUnits).map(([unit, [label]]) => [unit, label]), trendState.unit)}${action}</div></div>
       <div class="trend-body">${trendBody()}</div></section>`;
   }
   body.addEventListener("click", event => {
-    const button = event.target.closest("[data-trend-unit]");
+    const button = event.target.closest("[data-trend-unit],[data-trend-metric]");
     if (!button) return;
-    trendState.unit = button.dataset.trendUnit;
-    const panel = button.closest(".trend-panel");
-    panel.querySelectorAll("[data-trend-unit]").forEach(item => item.setAttribute("aria-pressed", String(item === button)));
-    panel.querySelector(".trend-body").innerHTML = trendBody();
+    const name = button.dataset.trendUnit ? "unit" : "metric";
+    trendState[name] = button.dataset.trendUnit || button.dataset.trendMetric;
+    button.parentElement.querySelectorAll("button").forEach(item => item.setAttribute("aria-pressed", String(item === button)));
+    button.closest(".trend-panel").querySelector(".trend-body").innerHTML = trendBody();
   });
+  // Oldingi davrga nisbatan o'zgarish: foiz (yoki foiz punkti). inverse — o'sish yomon (bo'sh joylar).
+  function delta(current, previous, { inverse = false, points = false } = {}) {
+    if (current == null || previous == null) return "";
+    if (!points && !previous) return current ? `<span class="delta ${inverse ? "bad" : "good"}">yangi</span>` : "";
+    const change = points ? current - previous : 100 * (current - previous) / previous;
+    if (Math.abs(change) < 0.5) return '<span class="delta flat">o‘zgarishsiz</span>';
+    return `<span class="delta ${(change > 0) !== inverse ? "good" : "bad"}">${change > 0 ? "▲" : "▼"} ${count(Math.round(Math.abs(change)))}${points ? " p." : "%"}</span>`;
+  }
+  const share = (part, whole) => whole ? Math.round(100 * part / whole) : null;
+  const percent = value => value == null ? "—" : `${value}%`;
+  const barList = (rows, row) => `<ol class="bar-list">${rows.map(row).join("")}</ol>`;
+  const bar = (title, value, width, note) => `<li><div class="bar-head"><span>${title}</span><strong>${value}</strong></div>
+    <div class="bar-track"><i style="--value:${Math.max(2, Math.min(100, width))}%"></i></div><small>${note}</small></li>`;
   const table = (labels, rows) => `<div class="work-table-wrap"><table class="work-table">
     <thead><tr>${labels.map(label => `<th scope="col">${label}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>`;
   const reportRows = (rows, filters) => {
@@ -178,22 +212,52 @@ export default function mountPage() {
       rastaJson(`/api/overview?days=${days}`), rastaJson("/api/reports"), rastaJson(`/api/field/overview?days=${days}`)
     ]);
     if ($("days").value !== days) return;
-    const recognition = stats.products ? Math.round(100 * stats.recognized / stats.products) + "%" : "—";
+    const before = stats.previous, shelf = stats.shelf, queue = stats.queue;
+    const recognition = share(stats.recognized, stats.products);
     const range = {from: stats.trend[0].day, to: stats.trend.at(-1).day};
     const drill = filter => reportsUrl(new URLSearchParams({...range, ...filter}));
     const statuses = [["submitted",stats.pending],["approved",stats.approved],["returned",stats.returned]];
+    const versus = (change, fallback = "") => change ? `${change} oldingi ${days} kunga nisbatan` : fallback;
+    const perAudit = (value, audits) => audits ? value / audits : null;
+    const gapsEach = perAudit(stats.gaps, stats.reports);
+    const decided = stats.approved + stats.returned;
+    const unresolved = stats.products - stats.recognized;        // SKU'si aniqlanmagan (katalogda yo'q yoki faqat brendi ma'lum)
+
+    // E'tibor talab qiladigan holatlar: kechikkan navbat, qaytarilgan auditlar, auditsiz do'konlar...
+    const alerts = [];
+    if (queue.stale) alerts.push(["warn", "info", `${count(queue.stale)} ta audit 24 soatdan ortiq tekshiruv kutmoqda`, reportsUrl(new URLSearchParams({status: "submitted"}))]);
+    if (stats.returned) alerts.push(["danger", "refresh", `${count(stats.returned)} ta audit qaytarilgan va hali qayta yuborilmagan`, drill({status: "returned"})]);
+    if (field.backlog.overdue) alerts.push(["danger", "calendar", `${count(field.backlog.overdue)} ta topshiriqning muddati o‘tgan`, "/field"]);
+    const silent = field.stores.filter(store => !store.audits);
+    if (silent.length && field.stores.length) alerts.push(["warn", "store",
+      `${count(silent.length)} ta do‘konda bu davrda audit bo‘lmagan: ${esc(silent.slice(0, 3).map(store => store.name).join(", "))}${silent.length > 3 ? " va boshqalar" : ""}`, "/stores"]);
+    const worst = stats.store_activity.filter(row => row.gaps).sort((a, b) => b.gaps / b.reports - a.gaps / a.reports)[0];
+    if (worst && worst.gaps / worst.reports >= 1) alerts.push(["warn", "empty",
+      `«${esc(worst.name)}» do‘konida har auditda o‘rtacha ${(worst.gaps / worst.reports).toFixed(1)} ta bo‘sh joy`, drill({store_id: worst.id})]);
+    if (recognition != null && recognition < 70 && unresolved) alerts.push(["info", "box",
+      `Mahsulotlarning ${100 - recognition}% i tanilmadi — katalogni to‘ldirish aniqlikni oshiradi`, "/admin"]);
+
     body.innerHTML = `<div class="work-metrics">
-      ${metric("Kelgan auditlar", count(stats.reports), "report", "green", `Oxirgi ${days} kun`)}
-      ${metric("Tekshiruv navbati", count(stats.pending), "info", "amber")}
-      ${metric("Kuzatilgan do‘konlar", count(stats.stores), "store", "blue")}
-      ${metric("SKU tanish", recognition, "scan", "violet", stats.products ? `${count(stats.recognized)} / ${count(stats.products)} mahsulot` : "")}</div>
+      ${metric("Kelgan auditlar", count(stats.reports), "report", "green", versus(delta(stats.reports, before.reports), `Oxirgi ${days} kun`))}
+      ${metric("Tekshiruv navbati", count(queue.open), "info", "amber", queue.stale ? `${count(queue.stale)} tasi 24 soatdan ortiq kutmoqda` : "Kechikkan audit yo‘q")}
+      ${metric("Kuzatilgan do‘konlar", `${count(stats.stores)}<small> / ${count(field.stores.length)}</small>`, "store", "blue", versus(delta(stats.stores, before.stores)))}
+      ${metric("SKU tanish", percent(recognition), "scan", "violet",
+        (stats.products ? `${count(stats.recognized)} / ${count(stats.products)} mahsulot` : "") + (before.products ? ` · ${delta(recognition, share(before.recognized, before.products), {points: true})}` : ""))}
+      ${metric("Topilgan bo‘sh joylar", count(stats.gaps), "empty", "amber",
+        (gapsEach == null ? "" : `Auditga o‘rtacha ${gapsEach.toFixed(1)} ta`) + (before.reports ? ` · ${delta(stats.gaps, before.gaps, {inverse: true})}` : ""))}
+      ${metric("Tasdiqlash ulushi", percent(share(stats.approved, decided)), "check", "green",
+        decided ? `${count(stats.approved)} tasdiqlangan · ${count(stats.returned)} qaytarilgan` : "Hali ko‘rib chiqilmagan")}
+      ${metric("Tekshiruv vaqti", reviewTime(stats.review_seconds), "clock", "blue", "Yuborilgandan qarorgacha, o‘rtacha")}
+      ${metric("SKU aniqlanmagan", count(unresolved), "box", "violet",
+        stats.products ? `Topilgan mahsulotlarning ${percent(share(unresolved, stats.products))} · <a class="table-drill" href="/admin">Katalogni to‘ldirish</a>` : "")}</div>
       <section class="card work-section operations-panel"><div class="panel-heading"><div><h2>Agentlar ishi</h2>
         <p>Tanlangan davrdagi tashrif va topshirishlar</p></div>${link("/field", "Tashriflar", false, "visit")}</div>
         <div class="operations-grid">
           <div><small>Tashriflar</small><strong>${count(field.totals.visits)}</strong><span>${count(field.totals.finished)} ta yakunlangan</span></div>
-          <div><small>Qamrab olingan do‘konlar</small><strong>${count(field.visited_stores)} / ${count(field.stores.length)}</strong></div>
+          <div><small>Qamrab olingan do‘konlar</small><strong>${count(field.visited_stores)} / ${count(field.stores.length)}</strong>
+            <span>${percent(share(field.visited_stores, field.stores.length))} qamrov</span></div>
           <div><small>Topshirilgan tovar</small><strong>${count(field.totals.units)}</strong><span>dona</span></div>
-          <div><small>Bajarilgan topshiriqlar</small><strong>${count(field.totals.tasks_done)}</strong><span>${count(field.backlog.overdue)} ta muddati o‘tgan · barcha davr</span></div>
+          <div><small>Bajarilgan topshiriqlar</small><strong>${count(field.totals.tasks_done)}</strong><span>${count(field.backlog.pending)} ta kutmoqda · ${count(field.backlog.overdue)} ta muddati o‘tgan</span></div>
         </div></section>
       <div class="dashboard-grid">
         ${trendPanel(stats.trend, stats.reports, link(drill({}), "Auditlarni ko‘rish", false, "arrow-right"))}
@@ -201,13 +265,41 @@ export default function mountPage() {
           ${stats.reports ? `<div class="status-track" aria-hidden="true">${statuses.map(([status,value]) =>
             `<i class="${status}" style="flex:${value}"${value ? "" : " hidden"}></i>`).join("")}</div>` : ""}
           ${statuses.map(([status,value]) => `<a class="state-line drill-link" href="${drill({status})}">${reportTag(status)}<strong>${count(value)} ${icon("arrow-right")}</strong></a>`).join("")}
-          <div class="state-line"><span>Topilgan bo‘sh joylar</span><strong>${count(stats.gaps)}</strong></div></section>
+          <div class="state-line"><span>Jami ochiq navbat</span><strong>${count(queue.open)}</strong></div>
+          <div class="state-line"><span>O‘rtacha tekshiruv vaqti</span><strong>${reviewTime(stats.review_seconds)}</strong></div></section>
       </div>
       ${stats.reports ? `<div class="dashboard-grid">
+        <section class="card dashboard-panel"><div class="panel-heading"><div><h2>Brendlar ulushi</h2>
+          <p>Tanilgan mahsulotlar soni bo‘yicha · ${count(shelf.audits)} ta audit</p></div></div>
+          ${shelf.brands.length ? barList(shelf.brands, row => bar(esc(row.brand), `${row.share_pct}%`, 100 * row.facings / shelf.brands[0].facings,
+              `${count(row.facings)} ta mahsulot · ${count(row.audits)} ta auditda`))
+            : empty("Brendlar hali tanilmadi", "Katalogga mahsulot qo‘shilgach, javondagi brendlar ulushi shu yerda ko‘rinadi.", "box")}</section>
+        <section class="card dashboard-panel"><div class="panel-heading"><div><h2>Javon holati</h2><p>Tanlangan davr auditlari bo‘yicha</p></div></div>
+          <div class="state-line"><span>Javon to‘liqligi</span><strong>${shelf.fill_pct == null ? "—" : `${Math.round(shelf.fill_pct)}%`}</strong></div>
+          <div class="state-line"><span>Taxminiy yetishmayotgan mahsulot</span><strong>${count(shelf.missing_facings)} dona</strong></div>
+          <div class="state-line"><span>Tanilgan brendlar</span><strong>${count(shelf.brand_count)}</strong></div>
+          <div class="state-line"><span>Tanilgan mahsulot turlari</span><strong>${count(shelf.product_count)}</strong></div>
+          <div class="state-line"><span>SKU aniqlanmagan mahsulotlar</span><strong>${count(unresolved)}</strong></div>
+          ${shelf.fill_pct == null ? "" : `<p class="panel-note">To‘liqlik zona belgilangan ${count(shelf.fill_audits)} ta auditda o‘lchangan.</p>`}</section>
+      </div>
+      <div class="dashboard-grid">
+        <section class="card dashboard-panel"><div class="panel-heading"><div><h2>Eng ko‘p uchragan mahsulotlar</h2>
+          <p>Javondagi soni bo‘yicha</p></div>${link("/admin", "Katalog")}</div>
+          ${shelf.products.length ? barList(shelf.products, row => bar(esc(row.name), `${count(row.facings)} ta`, 100 * row.facings / shelf.products[0].facings,
+              `${row.brand ? esc(row.brand) + " · " : ""}${count(row.audits)} ta auditda`))
+            : empty("Mahsulotlar hali tanilmadi", "Tanilgan mahsulotlar reytingi shu yerda ko‘rinadi.", "box")}</section>
+        <section class="card dashboard-panel"><div class="panel-heading"><div><h2>E’tibor talab qiladi</h2><p>Hozir hal qilinishi kerak bo‘lgan holatlar</p></div></div>
+          ${alerts.length ? `<div class="alert-list">${alerts.map(([tone, glyph, text, href]) =>
+              `<a class="alert-line ${tone}" href="${href}">${icon(glyph)}<span>${text}</span>${icon("arrow-right")}</a>`).join("")}</div>`
+            : empty("Hammasi joyida", "Kechikkan audit, muddati o‘tgan topshiriq yoki auditsiz do‘kon yo‘q.", "check")}</section>
+      </div>
+      <div class="dashboard-grid even">
         <section class="card dashboard-panel"><div class="panel-heading"><h2>Do‘konlar kesimida</h2>${link("/stores","Do‘konlar")}</div>
-        ${table(["Do‘kon","Audit","Bo‘sh joy"], stats.store_activity.map(row => `<tr><td><a class="table-drill" href="${drill({store_id:row.id})}">${esc(row.name)}</a></td><td>${count(row.reports)}</td><td>${count(row.gaps)}</td></tr>`).join(""))}</section>
+        ${table(["Do‘kon","Audit","Bo‘sh joy","Tanish","So‘nggi audit"], stats.store_activity.map(row => `<tr><td><a class="table-drill" href="${drill({store_id:row.id})}">${esc(row.name)}</a></td>
+          <td>${count(row.reports)}</td><td>${count(row.gaps)}</td><td>${percent(share(row.recognized, row.products))}</td><td>${esc(rastaDate(row.last_submission))}</td></tr>`).join(""))}</section>
         <section class="card dashboard-panel"><div class="panel-heading"><h2>Jamoa faolligi</h2>${link("/members","Xodimlar")}</div>
-        ${table(["Hisob","Audit","Tasdiqlangan"], stats.operator_activity.map(row => `<tr><td><a class="table-drill" href="${drill({author_id:row.id})}">${esc(row.username)}</a></td><td>${count(row.reports)}</td><td>${count(row.approved)}</td></tr>`).join(""))}</section>
+        ${table(["Hisob","Audit","Tasdiqlangan","Qaytarilgan","Tanish"], stats.operator_activity.map(row => `<tr><td><a class="table-drill" href="${drill({author_id:row.id})}">${esc(row.username)}</a></td>
+          <td>${count(row.reports)}</td><td>${count(row.approved)}</td><td>${count(row.returned)}</td><td>${percent(share(row.recognized, row.products))}</td></tr>`).join(""))}</section>
       </div>` : ""}
       <section class="card work-section"><div class="panel-heading"><div><h2>So‘nggi hisobotlar</h2><p>Korxona jamoasidan yuborilgan auditlar</p></div>${link("/reports", "Barchasi")}</div>
         ${latest.reports.length ? reportRows(latest.reports.slice(0,5)) : empty("Hisobotlar hali yo‘q", "Jamoa birinchi auditni yuborgach, uni shu yerda ko‘rasiz.")}</section>`;

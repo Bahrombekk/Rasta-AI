@@ -11,6 +11,7 @@ from .database import INTEGRITY_ERRORS
 from .field import FieldOperations
 
 TASHKENT = timezone(timedelta(hours=5))
+SHELF_REPORTS = 1000          # javon kesimi (brend, mahsulot) uchun o'qiladigan so'nggi auditlar soni
 
 
 def period(days):
@@ -23,6 +24,38 @@ def period(days):
 def daily_counts(start, days, counts):
     dates = [(start + timedelta(days=i)).isoformat() for i in range(days)]
     return [{"day": date, "count": counts.get(date, 0)} for date in dates]
+
+
+def shelf_insights(summaries, top=8):
+    """Auditlar xulosalaridan javon kesimi: brendlar ulushi, eng ko'p uchragan mahsulotlar, to'liqlik."""
+    brands, products, fill = {}, {}, []
+    unknown = missing = 0
+    for summary in summaries:
+        if summary.get("fill_pct") is not None:
+            fill.append(float(summary["fill_pct"]))
+        unknown += int(summary.get("num_unknown") or 0)
+        missing += int(summary.get("oos_facings") or 0)
+        for brand in summary.get("brands") or []:
+            row = brands.setdefault(brand["brand"], {"brand": brand["brand"], "facings": 0, "audits": 0})
+            row["facings"] += int(brand.get("facings") or 0)
+            row["audits"] += 1
+        for product in summary.get("products") or []:
+            row = products.setdefault(product["sku_id"], {
+                "sku_id": product["sku_id"], "name": product.get("name") or product["sku_id"],
+                "brand": product.get("brand"), "facings": 0, "audits": 0})
+            row["facings"] += int(product.get("facings") or 0)
+            row["audits"] += 1
+    branded = sum(row["facings"] for row in brands.values())
+    ranked = sorted(brands.values(), key=lambda row: (-row["facings"], row["brand"]))
+    for row in ranked:
+        row["share_pct"] = round(100.0 * row["facings"] / branded, 1) if branded else 0.0
+    return {
+        "audits": len(summaries), "unknown": unknown, "missing_facings": missing,
+        "fill_pct": round(sum(fill) / len(fill), 1) if fill else None, "fill_audits": len(fill),
+        "brand_count": len(ranked), "product_count": len(products),
+        "brands": ranked[:top],
+        "products": sorted(products.values(), key=lambda row: (-row["facings"], row["name"]))[:top],
+    }
 
 
 class Workspaces:
@@ -338,34 +371,65 @@ class Workspaces:
             return bool(reviewed)
 
     def overview(self, user, days):
-        where, args = self._visibility(user)
+        visible, identity = self._visibility(user)
         start, bounds = period(days)
-        where += " AND r.status!='draft' AND r.submitted>=? AND r.submitted<?"
-        args += bounds
+        where = visible + " AND r.status!='draft' AND r.submitted>=? AND r.submitted<?"
+        args = identity + bounds
+        earlier = identity + (bounds[0] - days * 86400, bounds[0])       # shu uzunlikdagi oldingi davr
+        aggregate = f"""
+            SELECT COUNT(*) AS reports, COUNT(CASE WHEN status='submitted' THEN 1 END) AS pending,
+            COUNT(CASE WHEN status='approved' THEN 1 END) AS approved, COUNT(CASE WHEN status='returned' THEN 1 END) AS returned,
+            COUNT(DISTINCT store_id) AS stores, COALESCE(SUM(products),0) AS products,
+            COALESCE(SUM(recognized),0) AS recognized, COALESCE(SUM(gaps),0) AS gaps,
+            AVG(CASE WHEN reviewed>=submitted THEN CAST(reviewed-submitted AS DOUBLE PRECISION) END) AS review_seconds
+            FROM reports r WHERE {where}
+        """
         with self.db() as db:
-            totals = dict(db.execute(f"""
-                SELECT COUNT(*) AS reports, COUNT(CASE WHEN status='submitted' THEN 1 END) AS pending,
-                COUNT(CASE WHEN status='approved' THEN 1 END) AS approved, COUNT(CASE WHEN status='returned' THEN 1 END) AS returned,
-                COUNT(DISTINCT store_id) AS stores, COALESCE(SUM(products),0) AS products,
-                COALESCE(SUM(recognized),0) AS recognized, COALESCE(SUM(gaps),0) AS gaps
-                FROM reports r WHERE {where}
-            """, args).fetchone())
-            trend = {str(row["day"]): row["count"] for row in db.execute(f"""
-                SELECT {db.submission_day} AS day, COUNT(*) AS count FROM reports r
+            db.read_snapshot()
+            totals = dict(db.execute(aggregate, args).fetchone())
+            totals["previous"] = dict(db.execute(aggregate, earlier).fetchone())
+            totals["queue"] = dict(db.execute(f"""
+                SELECT COUNT(*) AS open, COUNT(CASE WHEN r.submitted<? THEN 1 END) AS stale FROM reports r
+                WHERE {visible} AND r.status='submitted'
+            """, (int(time.time()) - 86400, *identity)).fetchone())
+            daily = {str(row["day"]): dict(row) for row in db.execute(f"""
+                SELECT {db.submission_day} AS day, COUNT(*) AS count, SUM(r.gaps) AS gaps,
+                SUM(r.products) AS products, SUM(r.recognized) AS recognized FROM reports r
                 WHERE {where} GROUP BY day
             """, args)}
             totals["store_activity"] = [dict(row) for row in db.execute(f"""
-                SELECT s.id,s.name,COUNT(*) AS reports,SUM(r.gaps) AS gaps FROM reports r
+                SELECT s.id,s.name,COUNT(*) AS reports,SUM(r.gaps) AS gaps,SUM(r.products) AS products,
+                SUM(r.recognized) AS recognized,MAX(r.submitted) AS last_submission FROM reports r
                 JOIN stores s ON s.id=r.store_id WHERE {where}
-                GROUP BY s.id ORDER BY reports DESC,s.name LIMIT 5
+                GROUP BY s.id,s.name ORDER BY reports DESC,s.name LIMIT 8
             """, args)]
             totals["operator_activity"] = [dict(row) for row in db.execute(f"""
-                SELECT u.id,u.username,COUNT(*) AS reports,COUNT(CASE WHEN r.status='approved' THEN 1 END) AS approved FROM reports r
+                SELECT u.id,u.username,COUNT(*) AS reports,COUNT(CASE WHEN r.status='approved' THEN 1 END) AS approved,
+                COUNT(CASE WHEN r.status='returned' THEN 1 END) AS returned,SUM(r.gaps) AS gaps,
+                SUM(r.products) AS products,SUM(r.recognized) AS recognized,MAX(r.submitted) AS last_submission FROM reports r
                 JOIN users u ON u.id=r.author_id WHERE {where}
-                GROUP BY u.id ORDER BY reports DESC,u.username LIMIT 5
+                GROUP BY u.id,u.username ORDER BY reports DESC,u.username LIMIT 8
             """, args)]
-        totals["trend"] = daily_counts(start, days, trend)
+        counts = {day: row["count"] for day, row in daily.items()}
+        totals["trend"] = [{**item, **{key: int(daily.get(item["day"], {}).get(key) or 0)
+                                       for key in ("gaps", "products", "recognized")}}
+                           for item in daily_counts(start, days, counts)]
+        totals["shelf"] = shelf_insights(self._summaries(where, args))
         return totals
+
+    def _summaries(self, where, args):
+        """Davrdagi so'nggi auditlarning xulosalari. Xulosa bazaning o'zida ajratib olinadi; baza buni bajara
+        olmasa (JSON funksiyasi yo'q) — butun natija o'qilib, shu yerda ajratiladi."""
+        tail = f"FROM reports r WHERE {where} ORDER BY r.submitted DESC LIMIT ?"
+        try:
+            with self.db() as db:
+                rows = [row["summary"] for row in db.execute(
+                    f"SELECT {db.report_summary} AS summary {tail}", (*args, SHELF_REPORTS))]
+            return [json.loads(text) for text in rows if text]
+        except Exception:  # noqa: BLE001
+            with self.db() as db:
+                rows = [row["result"] for row in db.execute(f"SELECT r.result {tail}", (*args, SHELF_REPORTS // 5))]
+            return [json.loads(text).get("summary") or {} for text in rows]
 
     def platform_overview(self, days, org_id=None):
         start, bounds = period(days)

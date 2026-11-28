@@ -142,7 +142,16 @@ def test_organization_boundaries_and_shelf_review(tmp_path, monkeypatch, workspa
         assert [event["status"] for event in admin.get(report).json()["events"]] == [
             "approved", "submitted", "returned", "submitted",
         ]
-        assert admin.get("/api/overview?days=7").json()["approved"] == 1
+        overview = admin.get("/api/overview?days=7").json()
+        assert overview["approved"] == 1 and overview["previous"]["reports"] == 0
+        assert overview["queue"] == {"open": 0, "stale": 0} and overview["review_seconds"] >= 0
+        assert sum(day["products"] for day in overview["trend"]) == overview["products"] == 2
+        assert sum(day["recognized"] for day in overview["trend"]) == overview["recognized"]
+        assert overview["store_activity"][0]["products"] == 2 and overview["store_activity"][0]["last_submission"]
+        assert overview["operator_activity"][0]["returned"] == 0
+        shelf = overview["shelf"]
+        assert shelf["audits"] == 1 and shelf["unknown"] + overview["recognized"] <= overview["products"]
+        assert sum(row["facings"] for row in shelf["products"]) == overview["recognized"]
         assert other.get("/api/overview?days=7").json()["reports"] == 0
         platform = root.get("/api/platform/overview?days=7").json()
         assert platform["organizations"] == {"total": 2, "active": 2}
@@ -192,3 +201,25 @@ def test_organization_boundaries_and_shelf_review(tmp_path, monkeypatch, workspa
         inactive = root.get(f"/api/organizations/{org_id}/overview").json()
         assert inactive["members"]["total"] == 1 and inactive["members"]["active"] == 0
         assert inactive["events"][0]["action"] == "organization_suspended"
+
+
+def test_shelf_insights_rank_brands_and_products_across_audits():
+    from rasta_backend.workspaces import shelf_insights
+
+    first = {"fill_pct": 80.0, "num_unknown": 3, "oos_facings": 2,
+             "brands": [{"brand": "DENA", "facings": 6}, {"brand": "Bliss", "facings": 2}],
+             "products": [{"sku_id": "dena_mango", "name": "DENA Mango 1L", "brand": "DENA", "facings": 4},
+                          {"sku_id": "dena_olma", "name": "DENA Olma 1L", "brand": "DENA", "facings": 2}]}
+    second = {"fill_pct": None, "num_unknown": 1, "oos_facings": 0,
+              "brands": [{"brand": "Bliss", "facings": 2}],
+              "products": [{"sku_id": "dena_olma", "name": "DENA Olma 1L", "brand": "DENA", "facings": 3}]}
+    shelf = shelf_insights([first, second, {}])
+    assert (shelf["audits"], shelf["unknown"], shelf["missing_facings"]) == (3, 4, 2)
+    assert (shelf["fill_pct"], shelf["fill_audits"]) == (80.0, 1)            # to'liqlik o'lchangan auditlar bo'yicha
+    assert [(row["brand"], row["facings"], row["audits"], row["share_pct"]) for row in shelf["brands"]] == [
+        ("DENA", 6, 1, 60.0), ("Bliss", 4, 2, 40.0)]
+    assert [(row["sku_id"], row["facings"], row["audits"]) for row in shelf["products"]] == [
+        ("dena_olma", 5, 2), ("dena_mango", 4, 1)]
+    assert shelf_insights([]) == {"audits": 0, "unknown": 0, "missing_facings": 0, "fill_pct": None,
+                                  "fill_audits": 0, "brand_count": 0, "product_count": 0, "brands": [], "products": []}
+

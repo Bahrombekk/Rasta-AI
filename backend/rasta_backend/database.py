@@ -47,6 +47,13 @@ class Connection:
             return "CAST(to_timestamp(r.submitted) AT TIME ZONE 'Asia/Tashkent' AS DATE)"
         return "date(r.submitted,'unixepoch','+05:00')"
 
+    @property
+    def report_summary(self):
+        """Hisobot natijasining faqat xulosa qismi (matn): butun natija (qutilar geometriyasi) o'qilmaydi."""
+        if self.postgres:
+            return "CAST(CAST(r.result AS JSON) -> 'summary' AS TEXT)"
+        return "json_extract(r.result,'$.summary')"
+
     def advance_identity(self, table):
         if self.postgres:
             self.raw.execute(sql.SQL("""
