@@ -11,6 +11,9 @@ Klasterlash RANG bo'yichami yoki SHAKL bo'yichami?
       f = [ DINOv2 (tekstura+naqsh+shakl) ,  alpha * rang ,  beta * tomonlar nisbati ]
   Embedding asosiy, rang va nisbat yordamchi. HDBSCAN dastlabki guruhlarni
   topadi. Guruhsiz crop'lar orasidan yaqin juftlar alohida tekshiriladi.
+
+Bu guruhlar brend/dizayn darajasida chiqadi (bir brendning ta'mlari birga). Operator nom beradigan
+guruhlar uchun `split_variants` har guruh ichida variantni (rang tasmalari + markazlangan embedding) ajratadi.
 """
 from __future__ import annotations
 
@@ -152,6 +155,49 @@ def split_mixed_labels(labels, embedding, colors, aspects, min_size) -> np.ndarr
             first = part == counts.argmax()
             refined[members[parts == part]] = group if first else next_id
             if not first:
+                next_id += 1
+    return refined
+
+
+def split_variants(labels, embedding, colors, min_size, max_color=0.12, max_embedding=0.65,
+                   center=None) -> np.ndarray:
+    """Bir guruhga tushgan, lekin varianti (ta'mi) boshqa qadoqlarni ajratadi.
+
+    Dastlabki guruhlar brend/dizayn bo'yicha tuziladi: bir brendning mango va olma sharbati bitta guruhga
+    tushadi va operator bergan bitta nom ikkalasiga yoziladi. Guruh ichida ikki quti faqat (a) uchala rang
+    tasmasining har biri o'xshash VA (b) rasm bo'yicha markazlangan embeddingi o'xshash bo'lsa birga qoladi.
+    `center` — rasmdagi hamma qutilarning o'rtacha vektori (umumiy «javondagi qadoq» tarkibini olib tashlaydi);
+    berilmasa (qutilar kam) faqat rang sharti ishlaydi. Guruhsiz qolgan a'zo -1 bo'ladi.
+    Bir ota guruhning bo'laklari ketma-ket raqam oladi (ro'yxatda yonma-yon turadi)."""
+    from scipy.cluster.hierarchy import fcluster, linkage
+
+    from .features import BINS, STRIPES
+
+    labels = np.asarray(labels)
+    if colors is None or not (labels >= 0).any():
+        return labels
+
+    def unit(a):
+        return a / np.linalg.norm(a, axis=1, keepdims=True).clip(1e-6)
+
+    stripes = [unit(colors[:, BINS * (k + 1): BINS * (k + 2)]) for k in range(STRIPES)]
+    vectors = unit(embedding - center) if center is not None and max_embedding else None
+    refined = -np.ones(len(labels), dtype=int)
+    next_id = 0
+    for group in np.unique(labels[labels >= 0]):
+        members = np.flatnonzero(labels == group)
+        parts = np.ones(len(members), dtype=int)
+        if len(members) > 1:
+            distance = np.max([1 - np.clip(s[members] @ s[members].T, -1, 1) for s in stripes], axis=0) / max_color
+            if vectors is not None:
+                near = 1 - np.clip(vectors[members] @ vectors[members].T, -1, 1)
+                distance = np.maximum(distance, near / max_embedding)
+            upper = np.triu_indices(len(members), k=1)
+            parts = fcluster(linkage(distance[upper].clip(0), method="average"), 1.0, criterion="distance")
+        for part in np.unique(parts):
+            chosen = members[parts == part]
+            if len(chosen) >= min_size:
+                refined[chosen] = next_id
                 next_id += 1
     return refined
 

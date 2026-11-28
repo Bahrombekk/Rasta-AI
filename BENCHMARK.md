@@ -896,3 +896,61 @@ Natija taklif sifatida beriladi: guruh aralash chiqsa, operator rasmda qutini al
 tekshiruvda (CPU OCR) butun tahlil bir necha daqiqa oldi; serverning GPU'sida ta'm so'zlarini o'qish bir necha
 soniya (≤60 quti).
 
+### 11o. Guruh ichida variantni ajratish (simulyatsiya: «bitta javon» oynalari) — 2026-11-28
+
+Savol: noma'lum mahsulotlar guruhlarini qanday kuchaytirish mumkin? Internetdagi ochiq ma'lumotlarda simulyatsiya
+qilindi, natija foydalanuvchining o'z javon rasmlarida tekshirildi.
+
+**O'lchov operator nuqtai nazaridan.** Har guruhga bitta nom beriladi (ko'pchilik SKU), guruhsiz qutilar bittalab
+nomlanadi. *xato* — noto'g'ri nom olgan qutilar ulushi (bu nom katalogga namuna bo'lib tushadi); *amal* — nomlash
+amallari soni / haqiqiy SKU soni (1.0 — ideal).
+
+**Simulyatsiya ma'lumoti muhim.** RP2K kesmalari har xil rasmlardan olingan; tasodifiy SKU to'plami haqiqiy tahlilga
+o'xshamaydi (bitta rasmda yorug'lik bir xil, bir brendning ta'mlari yonma-yon). RP2K fayl nomi
+«kun_annotatsiya raqami»: bir kunda ketma-ket raqamli kesmalar bir do'kon/javondan (qo'shni raqamlarda bir xil SKU
+uchrashi tasodifdan 10–30 marta ko'p). 160 ta oyna × 60 ketma-ket kesma yuklandi (9 208 kesma; oynada o'rtacha
+58 quti, 21 SKU, 9 tasi yakka — `IMG_6914` ham shunday: 32 belgilangan quti, 21 SKU). Birinchi 80 oyna — sozlash,
+qolgan 80 tasi — mustaqil tekshiruv. `python scripts/benchmark_cluster_windows.py`
+
+**Topilma.** Joriy guruhlar brend/dizayn darajasida chiqadi: bir brendning hamma ta'mi bitta guruh
+(`IMG_6914`: 11 ta Bliss — bitta guruh, 12 ta DENA — bitta guruh). Yangi bosqich (`cluster.split_variants`):
+guruh ichida ikki quti faqat uchala rang tasmasi ham o'xshash (kosinus masofa ≤ 0.12) VA rasm bo'yicha
+markazlangan embeddingi ham o'xshash (≤ 0.65) bo'lsa birga qoladi. Markaz — rasmdagi hamma qutilarning o'rtacha
+vektori («javondagi qadoq» umumiy tarkibini olib tashlaydi); rasmda 8 tadan kam quti bo'lsa faqat rang sharti.
+
+| To'plam | Oldin: xato / amal | Yangi: xato / amal |
+|---|---|---|
+| RP2K oynalari, sozlash (80) | 15.2% / 0.98× | **3.3%** / 1.53× |
+| RP2K oynalari, mustaqil (80) | 15.9% / 0.98× | **4.0%** / 1.52× |
+| Haqiqiy rasmlar (4 ta, 134 belgilangan quti) | 24.0% / 0.68× | **6.1%** / 1.13× |
+| — muzlatgich `IMG_6863` / `IMG_6864` | 19% / 33% | 0% / 6% |
+| — sharbat javoni `IMG_6914` | 44% | 19% (yozuv bilan 12.5%) |
+| — `cola_cans_shelf` | 0% / 1.00× | 0% / 1.17× |
+
+Narxi — nomlash amallari ko'payadi (yakka turgan ta'mlar endi guruhsiz, bittalab nomlanadi): aniqlik birinchi o'rinda
+bo'lgani uchun qabul qilindi. Chegaralar atrofida natija silliq (rang 0.10–0.14, embedding 0.60–0.70: mustaqil
+oynalarda xato 3.3–4.5%). Faqat rang sharti: 6.5% / 1.37×. Kichik to'plamlarda (3–30 quti) ham xato 0–3%.
+
+**Yozuv bilan.** Rangi bir xil qizil ta'mlar (olma, anor, pomidor) rangdan ajralmaydi. Yozuv xizmati ulangan bo'lsa,
+guruhdagi qutilarning ta'm so'zi o'qiladi va so'zlari zid qutilar ajratiladi (`flavour.split_by_words`,
+`clustering.variant_ocr`): `IMG_6914` da xato 18.8% → 12.5%; muzlatgich kadrlarida o'zgarish yo'q. Mahalliy CPU'da
+41 quti 2 daqiqa; serverning GPU'sida ~0.1 s/quti.
+
+**Sinab ko'rilib, qo'shilmaganlar:**
+- *Juftlik modeli* («ikki quti bir xil mahsulotmi» — RP2K 120 SKU'da o'qitilgan logistik/GBM): yangi 300 SKU'da F1
+  0.764 → 0.83–0.85, lekin boshqa domenda (Grocery Store) 0.69 → 0.2–0.6 ga quladi. Mutlaq o'xshashlik shkalasi
+  domenlar orasida ko'chmaydi (11e bilan bir xil xulosa).
+- *Markazlash + aglomerativ* (HDBSCAN o'rniga): tasodifiy to'plamlarda +0.03 F1, haqiqiy rasmlarda chegaraga juda
+  sezgir (t=0.45 da yaxshi, t=0.55 da joriydan yomon).
+- *k-o'zaro qo'shnilar (Jaccard) masofasi*, qo'shnilar bilan o'rtachalash, o'lchamga mos chegara, ajratilgandan keyin
+  qayta birlashtirish — foyda yo'q yoki ±0.01.
+- *Shartsiz rang bo'yicha ajratish* har xil rasmlardan olingan kesmalarda (RP2K tasodifiy to'plam) F1 ni 0.76 → 0.44
+  ga tushiradi — shuning uchun baholash «bitta javon» oynalarida va haqiqiy rasmlarda o'tkazildi. Bitta rasmda
+  yorug'lik keskin o'zgarsa (soya, oyna aksi) bir mahsulot ikki guruhga bo'linishi mumkin: xato emas, ortiqcha amal.
+
+Shu ish davomida topilgan nuqson: `flavour.colour_groups` rang tasmasi bir xil ikki qutida NaN berardi
+(yaxlitlash xatosi → manfiy og'irlik ildizi) — tuzatildi, test qo'shildi.
+
+HoloSelecta (vending-javon rasmlari, 109 SKU, quti darajasida belgilangan) eng mos ochiq to'plam, lekin
+Mendeley Data serveri shu kuni 502 qaytardi — yuklab bo'lmadi; keyingi tekshiruv uchun nomzod.
+

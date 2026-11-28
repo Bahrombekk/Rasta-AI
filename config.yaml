@@ -180,6 +180,14 @@ clustering:
   shape_weight: 0.3
   recovery_max_distance: 0.20  # guruhsiz crop'larni qo'shish chegarasi (kosinus); null — oddiy HDBSCAN
   split_label_colors: true    # baland qadoqlardagi aniq rang farqini klaster ichida tekshirish
+  # Guruh ichida variantni (ta'mni) ajratish: bitta nom faqat bir xil mahsulotlarga yozilsin. Ikki quti birga
+  # qoladi, agar uchala rang tasmasi ham (kosinus masofa <= variant_color) VA rasm bo'yicha markazlangan
+  # embeddingi ham (<= variant_embedding) o'xshash bo'lsa. O'lchov: BENCHMARK.md 11o.
+  variant_split: true
+  variant_color: 0.12
+  variant_embedding: 0.65     # null — faqat rang sharti
+  variant_min_boxes: 8        # rasmda shundan kam quti bo'lsa markazlash ishonchsiz: faqat rang sharti
+  variant_ocr: true           # yozuv xizmati ulangan bo'lsa: guruh ichida ta'm so'zlari zid qutilar ajratiladi
 
 flavour:
   # Brend ichida ta'm guruhlari: brendi aniq, ta'mi noma'lum qutilar (umumiy brend yozuvi, brend darajasi) ta'mi

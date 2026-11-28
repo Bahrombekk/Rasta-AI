@@ -6,6 +6,9 @@ ZIP range so'rovlari bilan faqat tanlangan sinflarning bir qismi olinadi.
 
   python scripts/fetch_rp2k.py --classes 120 --train 5 --test 20
 Natija: data/external/rp2k/{train,test}/<sinf_idx>/*.jpg + labels.json
+
+Mustaqil (sozlashda ishlatilmagan) ikkinchi to'plam — birinchisidagi sinflarsiz:
+  python scripts/fetch_rp2k.py --name rp2k_b --classes 300 --train 0 --test 20 --seed 1 --exclude rp2k
 """
 import argparse
 import json
@@ -28,12 +31,17 @@ def main():
     ap.add_argument("--test", type=int, default=20)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--workers", type=int, default=12)
+    ap.add_argument("--name", default="rp2k", help="data/external ichidagi papka nomi")
+    ap.add_argument("--exclude", default=None, help="shu papkadagi (labels.json) sinflar olinmaydi")
     args = ap.parse_args()
+    global OUT
+    index_dir = OUT
+    OUT = ROOT / "data" / "external" / args.name
 
     import requests
 
     # Indeks: (nom, hajm, lokal sarlavha offseti, siqilgan hajm, siqish turi)
-    idx_file = OUT / "index_offsets.json"
+    idx_file = index_dir / "index_offsets.json"
     if not idx_file.exists():
         from remotezip import RemoteZip
         OUT.mkdir(parents=True, exist_ok=True)
@@ -50,7 +58,11 @@ def main():
         if len(parts) == 4 and parts[3] and size > 0:
             files.setdefault((parts[1], parts[2]), []).append(name)
     classes = sorted({c for (_, c) in files})
-    ok = [c for c in classes if len(files.get(("train", c), [])) >= args.train
+    skip = set()
+    if args.exclude:
+        skip = set(json.load(open(ROOT / "data" / "external" / args.exclude / "labels.json",
+                                  encoding="utf-8")).values())
+    ok = [c for c in classes if c not in skip and len(files.get(("train", c), [])) >= args.train
           and len(files.get(("test", c), [])) >= args.test]
     rng = random.Random(args.seed)
     chosen = sorted(rng.sample(ok, min(args.classes, len(ok))))
@@ -65,6 +77,7 @@ def main():
                 dst = OUT / split / f"{ci:04d}" / f"{j:03d}.jpg"
                 if not dst.exists():
                     jobs.append((name, dst))
+    OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "labels.json").write_text(json.dumps(labels, ensure_ascii=False, indent=1),
                                      encoding="utf-8")
     print(f"[+] {len(chosen)} sinf, {len(jobs)} ta rasm yuklanadi...")

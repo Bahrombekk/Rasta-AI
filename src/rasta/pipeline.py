@@ -325,7 +325,9 @@ class RastaPipeline:
         if cfg.get("clustering.enabled", True) and vectors is not None:
             if cfg.get("context.enabled", True):
                 recover_cluster_brands(detections, vectors, colors, aspects, cfg, self.params)
-            clusters = self._cluster_unknowns(detections, vectors, colors, aspects)
+            t_groups = time.perf_counter()
+            clusters = self._cluster_unknowns(detections, vectors, colors, aspects, image=image, hires=hires)
+            t["cluster"] = (time.perf_counter() - t_groups) * 1000
 
         # 7. OOS
         t3 = time.perf_counter()
@@ -447,8 +449,8 @@ class RastaPipeline:
             timings_ms=t,
         )
 
-    def _cluster_unknowns(self, detections, vectors, colors, aspects) -> dict:
-        from .cluster import cluster_unknown_features, summarize
+    def _cluster_unknowns(self, detections, vectors, colors, aspects, image=None, hires=None) -> dict:
+        from .cluster import cluster_unknown_features, split_variants, summarize
 
         idx = [i for i, d in enumerate(detections)
                if not (d.match and (d.match.is_known or d.match.level == "brand"))]
@@ -456,6 +458,25 @@ class RastaPipeline:
             return {}
         labels = cluster_unknown_features(
             vectors[idx], colors[idx], np.asarray(aspects)[idx], self.cfg)
+        cfg = self.cfg
+        if cfg.get("clustering.variant_split", True) and colors is not None:
+            # Markaz — rasmdagi hamma qutilar bo'yicha (tanilganlar ham); qutilar kam bo'lsa faqat rang sharti
+            enough = len(vectors) >= int(cfg.get("clustering.variant_min_boxes", 8))
+            labels = split_variants(
+                labels, vectors[idx], colors[idx], cfg.get("clustering.min_cluster_size", 2),
+                max_color=float(cfg.get("clustering.variant_color", 0.12)),
+                max_embedding=cfg.get("clustering.variant_embedding", 0.65),
+                center=vectors.mean(axis=0) if enough else None)
+            # Rangi bir xil variantlar (qizil ta'mlar) faqat yozuvi bilan farq qiladi: guruhdagi qutilarning ta'm so'zi
+            reader = self.label_reader if cfg.get("ocr.enabled", True) and cfg.get("clustering.variant_ocr", True) else None
+            grouped = [k for k, lab in enumerate(labels) if lab >= 0]
+            if reader is not None and image is not None and grouped:
+                from .flavour import read_flavour_keys, split_by_words
+
+                found = read_flavour_keys([detections[i] for i in idx], grouped, reader, image, hires,
+                                          int(cfg.get("flavour.max_boxes", 60)))
+                keys = [found.get(k, frozenset()) for k in range(len(idx))]
+                labels = split_by_words(labels, keys, colors[idx], cfg.get("clustering.min_cluster_size", 2))
         for i, lab in zip(idx, labels):
             detections[i].cluster = int(lab)
         return summarize(labels, idx)

@@ -431,6 +431,51 @@ def test_two_close_unknown_products_form_a_group():
     assert cluster_unknown_features(vectors, None, None, cfg).tolist() == [-1, -1]
 
 
+def test_variants_inside_one_group_are_separated():
+    from rasta.cluster import split_variants
+    from rasta.features import BINS
+
+    def carton(fruit):                 # bir xil dizayn: tepasi oq, pasti yashil; o'rtadagi meva rangi farq qiladi
+        image = np.zeros((90, 30, 3), dtype=np.uint8)
+        image[:30], image[30:60], image[60:] = (245, 245, 245), fruit, (20, 120, 40)
+        return color_descriptor(image)
+
+    colors = np.stack([carton((240, 140, 20))] * 3 + [carton((200, 20, 30))] * 2 + [carton((90, 30, 150))])
+    labels = np.zeros(6, dtype=int)                                  # dastlabki guruh: hammasi bitta brend
+    vectors = np.tile([1.0, 0.0], (6, 1))
+    split = split_variants(labels, vectors, colors, min_size=2)
+    assert split[:3].tolist() == [split[0]] * 3 and split[3] == split[4] >= 0 and split[0] != split[3]
+    assert split[5] == -1                                             # yakka ta'm guruh emas — alohida nomlanadi
+    assert sorted(set(split[split >= 0].tolist())) == [0, 1]         # bo'laklar ketma-ket raqamlanadi
+
+    # Rangi bir xil, lekin rasm bo'yicha markazlangan embeddingi qarama-qarshi qutilar ham ajraladi
+    same = np.stack([carton((240, 140, 20))] * 4)
+    vectors = np.array([[1.0, 0.2], [1.0, 0.25], [1.0, -0.2], [1.0, -0.25]])
+    assert len(set(split_variants(np.zeros(4, dtype=int), vectors, same, 2).tolist())) == 1      # markazsiz: faqat rang
+    by_vector = split_variants(np.zeros(4, dtype=int), vectors, same, 2, center=vectors.mean(axis=0))
+    assert by_vector[0] == by_vector[1] != by_vector[2] == by_vector[3]
+    assert split_variants(np.array([-1, -1]), vectors[:2], same[:2], 2).tolist() == [-1, -1]
+    assert colors.shape[1] == 4 * BINS
+
+
+def test_group_members_with_conflicting_flavour_words_are_separated():
+    from rasta.flavour import split_by_words
+
+    red, pale = color_descriptor(solid((200, 20, 30))), color_descriptor(solid((230, 200, 190)))
+    colors = np.stack([red, red, red, pale, pale, red])
+    labels = np.array([0, 0, 0, 0, 0, -1])
+    apple, tomato, none = frozenset({"olma"}), frozenset({"pomidor"}), frozenset()
+    # rangi bir xil qizil ta'mlar: yozuvi zid -> ikki guruh; so'zi o'qilmagan quti rangi yaqin bo'lakka qo'shiladi
+    split = split_by_words(labels, [apple, apple, none, tomato, none, none], colors)
+    assert split[0] == split[1] == split[2] != split[3] == split[4] and split[5] == -1
+    # zid so'z yo'q (bitta ta'm yoki umuman o'qilmagan) -> guruh o'zgarmaydi
+    assert split_by_words(labels, [apple, none, none, none, apple, none], colors).tolist() == labels.tolist()
+    assert split_by_words(labels, [none] * 6, colors).tolist() == labels.tolist()
+    # yakka qolgan ta'm guruh bo'lmaydi
+    alone = split_by_words(np.array([0, 0, 0]), [apple, apple, tomato], colors[:3])
+    assert alone[0] == alone[1] >= 0 and alone[2] == -1
+
+
 def test_noise_recovery_does_not_merge_a_chain_or_extend_through_new_members():
     angles = np.deg2rad([0, 2, 30, 60, 90, 120, 180])
     vectors = np.column_stack([np.cos(angles), np.sin(angles)])
@@ -734,6 +779,8 @@ def test_flavours_of_one_brand_are_grouped_by_colour_and_label_word():
     assert labels[0] != labels[1] and labels[3] == labels[4]
     assert labels[2] in (labels[0], labels[1]) and labels[0] not in (labels[3], labels[4])
     assert group_flavours(colors, [frozenset()] * 5) == group_flavours(colors, [frozenset()] * 5)
+    from rasta.flavour import colour_groups
+    assert np.isfinite(colour_groups(np.stack([colors[0], colors[0]]))).all()     # bir xil ikki quti: NaN bo'lmaydi
 
     def det(i, fam, color):
         match = Match("dena" if fam else None, "DENA" if fam else None, 0.8, 0.5, fam, brand="DENA",

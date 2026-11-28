@@ -232,6 +232,7 @@ python scripts/benchmark_grocery.py --subset packages --seeds 20
 python scripts/benchmark_rp2k.py --seeds 20
 python scripts/benchmark_summary.py --seeds 20       # eski vs yangi yakuniy jadval
 python scripts/benchmark_clustering.py               # rang vs shakl vs embedding
+python scripts/benchmark_cluster_windows.py       # «bitta javon» oynalarida guruhlar: xato / nomlash amallari
 python scripts/benchmark_synthetic.py --n 100 [--ablation]
 python scripts/benchmark_oos.py --n 40
 ```
