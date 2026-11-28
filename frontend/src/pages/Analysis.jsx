@@ -43,6 +43,16 @@ export default function Analysis() {
 
 
         <div className="work" id="work" hidden>
+          <section className="card result-bar" id="resultBar" hidden>
+            <div className="result-head">
+              <div><h2>Tahlil natijasi</h2><p id="resultMeta"></p></div>
+              <div className="result-head-actions">
+                <button className="btn ghost" id="again" type="button"><Icon name="refresh" />Qayta tahlil</button>
+                <button className="btn primary" id="sendJump" type="button" hidden><Icon name="report" />Auditni yuborish</button>
+              </div>
+            </div>
+            <div className="kpis" id="kpis"></div>
+          </section>
           <section className="card viewer">
             <div className="viewer-heading">
               <span className="metric-icon"><Icon name="image" /></span>
@@ -87,42 +97,12 @@ export default function Analysis() {
             </section>
 
 
-            <div id="res" hidden style={{"display": "contents"}}>
-              <section className="card card-pad result-overview">
-                <h2 className="section-title">Tahlil natijasi</h2>
-                <div className="kpis" id="kpis"></div>
-              </section>
-              <section className="card card-pad" id="sendPanel" hidden>
-                <h2 className="section-title">Auditni yuborish</h2>
-                <form id="sendForm">
-                  <label className="field"><span>Do‘kon</span><select className="input" name="store" required></select></label>
-                  <label className="field"><span>Izoh (ixtiyoriy)</span><textarea className="input" name="note" rows="2" maxLength="1000"></textarea></label>
-                  <button className="btn primary block" id="sendBtn" type="submit">Hisobotni yuborish</button>
-                  <div className="err" id="sendError" role="alert"></div>
-                </form>
-                <p id="sentMessage" hidden role="status">Hisobot yuborildi. <a href="/reports">Hisobotlarni ko‘rish</a></p>
-              </section>
-              <section className="card card-pad" id="shareCard">
-                <p className="section-title">Javondagi ulush</p>
-                <div className="share">
-                  <svg className="donut" id="donut" viewbox="0 0 120 120"></svg>
-                  <div className="plist" id="legend"></div>
-                </div>
-              </section>
-              <section className="card card-pad">
-                <p className="section-title" id="plTitle">Mahsulotlar</p>
-                <div className="plist" id="plist"></div>
-              </section>
-              <section className="card card-pad" id="groupsCard" hidden>
-                <p className="section-title" id="groupsTitle">Katalogda yo‘q</p>
-                <p className="analysis-help" id="groupsHelp"></p>
-                <div className="group-grid" id="groups"></div>
-              </section>
-              <section className="card card-pad" id="flavourCard" hidden>
-                <p className="section-title" id="flavourTitle">Brend ta‘mlari</p>
-                <p className="analysis-help" id="flavourHelp"></p>
-                <div id="flavours"></div>
-              </section>
+            <div id="res" className="result-panel" hidden>
+              <div className="result-tabs" role="tablist" aria-label="Natija bo‘limlari">
+                <button type="button" role="tab" data-tab="overview" aria-selected="true"><Icon name="chart" />Umumiy</button>
+                <button type="button" role="tab" data-tab="unknown" aria-selected="false"><Icon name="box" />Katalogda yo‘q<b id="unknownBadge" hidden></b></button>
+                <button type="button" role="tab" data-tab="send" id="sendTab" aria-selected="false" hidden><Icon name="report" />Yuborish</button>
+              </div>
               <section className="card card-pad why-card" id="why" hidden>
                 <p className="section-title">Tanlangan mahsulot</p>
                 <p id="whyText"></p>
@@ -141,11 +121,52 @@ export default function Analysis() {
                 </div>
                 <div className="err" id="teachErr"></div>
               </section>
-              <div id="notes" style={{"display": "flex", "flexDirection": "column", "gap": "10px"}}></div>
+              <div className="tab-panel" data-panel="overview" role="tabpanel">
+                <section className="card card-pad" id="shareCard">
+                  <p className="section-title">Javondagi ulush</p>
+                  <div className="share">
+                    <svg className="donut" id="donut" viewbox="0 0 120 120"></svg>
+                    <div className="plist" id="legend"></div>
+                  </div>
+                </section>
+                <section className="card card-pad">
+                  <p className="section-title" id="plTitle">Mahsulotlar</p>
+                  <div className="plist" id="plist"></div>
+                </section>
+                <div className="note-list" id="notes"></div>
+              </div>
+              <div className="tab-panel" data-panel="unknown" role="tabpanel" hidden>
+                <section className="card card-pad" id="groupsCard" hidden>
+                  <p className="section-title" id="groupsTitle">Katalogda yo‘q</p>
+                  <p className="analysis-help" id="groupsHelp"></p>
+                  <div className="group-grid" id="groups"></div>
+                </section>
+                <section className="card card-pad" id="flavourCard" hidden>
+                  <p className="section-title" id="flavourTitle">Brend ta‘mlari</p>
+                  <p className="analysis-help" id="flavourHelp"></p>
+                  <div id="flavours"></div>
+                </section>
+                <section className="card card-pad tab-empty" id="unknownEmpty" hidden>
+                  <span className="metric-icon"><Icon name="check" /></span>
+                  <strong>Guruhlar yo‘q</strong>
+                  <p>Katalogda yo‘q, bir-biriga o‘xshash mahsulotlar topilmadi. Yakka mahsulotni rasmda bosib tanlash mumkin.</p>
+                </section>
+              </div>
+              <div className="tab-panel" data-panel="send" role="tabpanel" hidden>
+                <section className="card card-pad" id="sendPanel" hidden>
+                  <h2 className="section-title">Auditni yuborish</h2>
+                  <form id="sendForm">
+                    <label className="field"><span>Do‘kon</span><select className="input" name="store" required></select></label>
+                    <label className="field"><span>Izoh (ixtiyoriy)</span><textarea className="input" name="note" rows="3" maxLength="1000"></textarea></label>
+                    <button className="btn primary lg block" id="sendBtn" type="submit">Hisobotni yuborish</button>
+                    <div className="err" id="sendError" role="alert"></div>
+                  </form>
+                  <p id="sentMessage" hidden role="status">Hisobot yuborildi. <a href="/reports">Hisobotlarni ko‘rish</a></p>
+                </section>
+              </div>
               <div className="result-actions">
-                <button className="btn" id="exportJson">JSON yuklash</button>
-                <button className="btn" id="exportImage">Rasmni saqlash</button>
-                <button className="btn ghost" id="again"><Icon name="refresh" />Qayta tahlil qilish</button>
+                <button className="btn" id="exportJson"><Icon name="download" />JSON yuklash</button>
+                <button className="btn" id="exportImage"><Icon name="image" />Rasmni saqlash</button>
               </div>
             </div>
           </aside>

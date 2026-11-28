@@ -252,17 +252,71 @@ input[type=file] { display: none; }
 .err:empty { display: none; }
 
 /* --- KPI --- */
-.kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.kpi { border: 1px solid var(--border); border-radius: 12px; padding: 13px 14px; background: var(--surface); }
-.kpi .t { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12.5px; font-weight: 550; }
-.kpi .t svg { width: 15px; height: 15px; }
-.kpi .v { font-size: 26px; font-weight: 700; letter-spacing: -.5px; margin-top: 4px; line-height: 1.15;
-          font-variant-numeric: tabular-nums; }
-.kpi .v small { font-size: 14px; font-weight: 550; color: var(--muted); margin-left: 2px; }
-.kpi.bad .v { color: var(--danger); }
+.result-bar { grid-column: 1 / -1; display: grid; gap: 14px; padding: 16px 18px; }
+.result-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.result-head h2 { margin: 0; font-size: 19px; letter-spacing: -.02em; }
+.result-head p { margin: 3px 0 0; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.result-head-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: 10px; }
+.kpi { --kpi-ink: var(--accent); --kpi-tint: var(--accent-soft); position: relative; display: grid; align-content: start; gap: 2px;
+       min-width: 0; min-height: 92px; padding: 12px 14px 12px 58px; text-align: left; font: inherit; color: var(--ink);
+       border: 1px solid var(--border); border-radius: 12px;
+       background: linear-gradient(135deg, var(--surface) 55%, color-mix(in srgb, var(--kpi-tint) 70%, var(--surface))); }
+button.kpi { cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+button.kpi:hover { border-color: var(--kpi-ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--kpi-ink) 16%, transparent); }
+.kpi-icon { position: absolute; left: 12px; top: 13px; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px;
+            background: var(--kpi-tint); color: var(--kpi-ink); border: 1px solid color-mix(in srgb, var(--kpi-ink) 28%, transparent); }
+.kpi-icon svg { width: 17px; height: 17px; }
+.kpi .t { color: var(--muted); font-size: 12.5px; font-weight: 600; }
+.kpi .v { font-size: 27px; font-weight: 750; letter-spacing: -.04em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.kpi .v small { font-size: 14px; font-weight: 600; color: var(--muted); margin-left: 2px; }
+.kpi > small { color: var(--muted); font-size: 12px; line-height: 1.3; overflow-wrap: anywhere; }
+.kpi.good { --kpi-ink: var(--accent); }
 .kpi.good .v { color: var(--accent); }
-.meter { height: 5px; background: var(--surface-2); border-radius: 3px; margin-top: 8px; overflow: hidden; }
-.meter i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.kpi.warn { --kpi-ink: var(--warn); --kpi-tint: var(--warn-soft); }
+.kpi.bad { --kpi-ink: var(--danger); --kpi-tint: var(--danger-soft); }
+.kpi.bad .v { color: var(--danger); }
+.meter { display: block; height: 5px; background: var(--surface-2); border-radius: 3px; margin: 4px 0 2px; overflow: hidden; }
+.meter i { display: block; height: 100%; border-radius: 3px; background: var(--kpi-ink, var(--accent)); }
+
+/* --- natija bo'limlari (Umumiy / Katalogda yo'q / Yuborish) --- */
+.result-panel, .tab-panel, .note-list { display: flex; flex-direction: column; min-width: 0; }
+.result-panel, .tab-panel { gap: 16px; }
+.note-list { gap: 10px; }
+.result-tabs { position: sticky; top: 10px; z-index: 6; display: flex; gap: 4px; padding: 4px;
+               border: 1px solid var(--border); border-radius: 13px; background: var(--surface); box-shadow: var(--shadow); }
+.result-tabs button { flex: 1 1 auto; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px;
+                      padding: 6px 8px; border: 0; border-radius: 9px; background: none; color: var(--ink-2); cursor: pointer;
+                      font: inherit; font-size: 13.5px; font-weight: 650; white-space: nowrap; }
+.result-tabs button svg { width: 16px; height: 16px; flex: none; }
+.result-tabs button:hover { background: var(--surface-2); }
+.result-tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); }
+.result-tabs b { min-width: 20px; padding: 1px 6px; border-radius: 999px; font-size: 11.5px; line-height: 1.5;
+                 background: var(--warn-soft); color: var(--warn); }
+.result-tabs button[aria-selected="true"] b { background: color-mix(in srgb, var(--accent-ink) 22%, transparent); color: var(--accent-ink); }
+.tab-empty { display: grid; justify-items: center; gap: 8px; text-align: center; }
+.result-bar, .result-tabs, .stage { scroll-margin-top: 14px; }
+/* Telefonda tepada yopishqoq sarlavha bor: bo'limlar va surish undan pastda to'xtaydi */
+@media (max-width: 700px) {
+  .shell + .page :is(.result-bar, .result-tabs, .stage) { scroll-margin-top: 78px; }
+  .shell + .page .result-tabs { top: 73px; }
+}
+@media (max-width: 560px) {
+  .result-bar { padding: 12px; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .kpi { padding: 9px 10px 9px 46px; min-height: 0; }
+  .kpi-icon { left: 9px; top: 10px; width: 28px; height: 28px; border-radius: 8px; }
+  .kpi-icon svg { width: 15px; height: 15px; }
+  .kpi .t { font-size: 12px; }
+  .kpi .v { font-size: 22px; }
+  .kpi > small { font-size: 11.5px; }
+  .result-head h2 { font-size: 17px; }
+  .result-head-actions { width: 100%; }
+  .result-head-actions .btn { flex: 1; min-height: 44px; }
+  .result-tabs button { font-size: 12.5px; padding: 6px 4px; min-height: 44px; }
+  .result-tabs button svg { display: none; }
+}
+.tab-empty p { margin: 0; color: var(--muted); font-size: 13.5px; }
 
 /* --- ulush --- */
 .share { display: grid; grid-template-columns: 132px 1fr; gap: 16px; align-items: center; }
@@ -396,8 +450,8 @@ input[type=file] { display: none; }
 }
 .work.wide { grid-template-columns: minmax(0, 1fr); }
 .work.wide .stage canvas { max-height: none; }
-.work.wide .side { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); align-items: start; }
-.work.wide .side > #res { display: contents; }
+.work.wide .tab-panel { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); align-items: start; }
+.work.wide .result-tabs { max-width: 560px; }
 @media (max-width: 980px) {
   #wideBtn { display: none; }
   .stage canvas { max-height: none; }

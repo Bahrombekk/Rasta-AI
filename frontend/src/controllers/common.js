@@ -112,31 +112,73 @@
     if (!target) return { stop() {} };
     const restore = getComputedStyle(target).position === "static";
     if (restore) target.style.position = "relative";
+    const live = Boolean(opts.live);             // skaner haqiqiy rasm ustida yuradi, holat pastdagi panelda
     const ov = document.createElement("div");
-    ov.className = "rasta-loader" + (opts.scan ? " scan" : "");
+    ov.className = "rasta-loader" + (opts.scan ? " scan" : "") + (live ? " live" : "")
+      + (live && target.clientHeight < 430 ? " compact" : "");
     ov.setAttribute("role", "status");
-    ov.innerHTML =
-      `<div class="rl-visual">${opts.scan ? rlShelf() : rlPack()}</div>`
-      + '<div class="rl-status"><span class="rl-dot"></span><span class="rl-text"></span></div>'
-      + '<div class="rl-bar"><span class="rl-fill"></span></div>'
-      + `<div class="rl-steps">${stages.map(s => `<span class="rl-step">${window.esc(s)}</span>`).join("")}</div>`;
+    const status = '<div class="rl-status"><span class="rl-dot"></span><span class="rl-text"></span><span class="rl-time"></span></div>'
+      + '<div class="rl-bar"><span class="rl-fill"></span></div>';
+    if (live) {
+      let probes = "";
+      for (let k = 0; k < 16; k++) {
+        const top = 6 + Math.random() * 86, left = 5 + Math.random() * 88;
+        probes += `<span class="rl-probe" style="top:${top.toFixed(1)}%;left:${left.toFixed(1)}%;animation-delay:${(top / 100 * 1.95).toFixed(2)}s"></span>`;
+      }
+      ov.innerHTML = '<div class="rl-scan"><span class="rl-grid"></span>' + probes + '<span class="rl-beam"></span>'
+        + '<span class="rl-corner tl"></span><span class="rl-corner tr"></span><span class="rl-corner bl"></span><span class="rl-corner br"></span></div>'
+        + `<div class="rl-hud">${status}<ol class="rl-list">${stages.map(s => `<li class="rl-step"><i></i><span>${window.esc(s)}</span></li>`).join("")}</ol></div>`;
+    } else {
+      ov.innerHTML = `<div class="rl-visual">${opts.scan ? rlShelf() : rlPack()}</div>` + status
+        + `<div class="rl-steps">${stages.map(s => `<span class="rl-step">${window.esc(s)}</span>`).join("")}</div>`;
+    }
     target.appendChild(ov);
-    const text = ov.querySelector(".rl-text"), fill = ov.querySelector(".rl-fill");
+    // Skaner qatlami rasmning o'ziga (kanvasga) moslanadi: yon tomondagi bo'sh maydonda nur yurmaydi
+    const frame = () => {
+      const scan = ov.querySelector(".rl-scan");
+      if (!scan || !opts.frame) return;
+      const outer = target.getBoundingClientRect(), inner = opts.frame.getBoundingClientRect();
+      Object.assign(scan.style, { left: inner.left - outer.left + "px", top: inner.top - outer.top + "px",
+        width: inner.width + "px", height: inner.height + "px" });
+    };
+    frame();
+    window.addEventListener("resize", frame);
+    const text = ov.querySelector(".rl-text"), fill = ov.querySelector(".rl-fill"), clock = ov.querySelector(".rl-time");
     const chips = [...ov.querySelectorAll(".rl-step")];
-    let i = 0;
-    const tick = () => {
+    const started = performance.now();
+    const mark = (i, width) => {
       text.textContent = stages[i] + "…";
       chips.forEach((c, k) => { c.classList.toggle("done", k < i); c.classList.toggle("now", k === i); });
-      fill.style.width = Math.round((i + 1) / stages.length * 100) + "%";
-      i = Math.min(i + 1, stages.length - 1);
+      fill.style.width = width + "%";
     };
-    tick();
-    const timer = setInterval(tick, opts.interval || 800);
+    let timer;
+    if (opts.expected) {
+      // Kutilgan vaqtga mos sur'at: bosqichlar o'z ulushiga qarab almashadi, chiziq 100% ga yetmay kutadi
+      const weights = opts.weights || stages.map(() => 1), whole = weights.reduce((a, b) => a + b, 0);
+      const edges = []; weights.reduce((sum, w) => { edges.push((sum + w) / whole); return sum + w; }, 0);
+      const tick = () => {
+        const elapsed = performance.now() - started;
+        const done = 1 - Math.exp(-2.2 * elapsed / opts.expected);
+        const i = Math.min(stages.length - 1, edges.findIndex(edge => done < edge * 0.92) >>> 0);
+        mark(i, Math.max(4, Math.round(done * 94)));
+        clock.textContent = `${Math.floor(elapsed / 1000)} s`;
+      };
+      tick();
+      timer = setInterval(tick, 200);
+    } else {
+      let i = 0;
+      const tick = () => { mark(i, Math.round((i + 1) / stages.length * 100)); i = Math.min(i + 1, stages.length - 1); };
+      tick();
+      timer = setInterval(tick, opts.interval || 800);
+    }
     return {
       stop() {
         clearInterval(timer);
+        window.removeEventListener("resize", frame);
+        if (live) { chips.forEach(c => { c.classList.add("done"); c.classList.remove("now"); }); fill.style.width = "100%"; }
         ov.classList.add("rl-out");
-        setTimeout(() => { ov.remove(); if (restore) target.style.position = ""; }, 180);
+        setTimeout(() => { ov.remove(); if (restore) target.style.position = ""; }, live ? 260 : 180);
+        return performance.now() - started;
       }
     };
   };

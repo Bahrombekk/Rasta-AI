@@ -192,7 +192,7 @@ export default function mountPage() {
       $("photoInfo").textContent = `${img.naturalWidth} × ${img.naturalHeight} px`;
       phase("photo");
       $("start").hidden = true; $("work").hidden = false;
-      $("pre").hidden = false; $("res").hidden = true; $("boxesBtn").hidden = true;
+      $("pre").hidden = false; $("res").hidden = true; $("resultBar").hidden = true; $("boxesBtn").hidden = true;
       $("err").textContent = ""; ui(); draw();
     };
     next.onerror = () => {
@@ -311,7 +311,7 @@ export default function mountPage() {
     sel.clear(); picked = -1;
     $("teach").hidden = true; $("why").hidden = true;
     $("gapLegend").hidden = true;
-    if (R) { R = null; hl = null; $("res").hidden = true; $("pre").hidden = false; $("boxesBtn").hidden = true; $("wideBtn").hidden = true; }
+    if (R) { R = null; hl = null; $("res").hidden = true; $("resultBar").hidden = true; $("pre").hidden = false; $("boxesBtn").hidden = true; $("wideBtn").hidden = true; }
   }
   $("zoneBtn").onclick = () => { resetResult(); drawing = true; pts = []; closed = false; ui(); draw(); };
   $("zoneClear").onclick = () => { resetResult(); drawing = false; pts = []; closed = false; ui(); draw(); };
@@ -369,13 +369,20 @@ export default function mountPage() {
     analysis = request;
     const old = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Tahlil qilinmoqda…';
     $("err").textContent = "";
+    // Jarayon rasmning o'zida ko'rsatiladi; sur'at — shu qurilmadagi oldingi tahlillar davomiyligiga qarab
+    let expected = 7000;
+    try { expected = Number(localStorage.getItem("rasta-analyze-ms")) || expected; } catch (e) {}
     const loader = window.rastaLoader(cv.parentElement, [
-      "Rasm tayyorlanmoqda", "Mahsulotlar aniqlanmoqda", "Qatorlar belgilanmoqda",
-      "Katalog bilan solishtirilmoqda", "Sanalmoqda"], { scan: true });
+      "Rasm yuklanmoqda", "Mahsulotlar aniqlanmoqda", "Qatorlar va bo‘sh joylar belgilanmoqda",
+      "Katalog bilan solishtirilmoqda", "Yozuvlar va guruhlar tekshirilmoqda", "Natija hisoblanmoqda"],
+      { scan: true, live: true, frame: cv, expected, weights: [1, 3, 1, 3, 3, 1] });
+    reveal(cv.parentElement, "center");          // telefonda rasm tugmadan pastda turadi — jarayon ko'rinsin
+    let succeeded = false;
     try {
       const r = await rastaFetch("/api/analyze", { method: "POST", body: fd, signal: request.signal });
       const d = await r.json().catch(() => null);
       if (!r.ok || !d) throw new Error(typeof d?.detail === "string" ? d.detail : "Tahlilni yakunlab bo‘lmadi.");
+      succeeded = true;
       if (!request.signal.aborted) show(d);
     } catch (e) {
       if (!request.signal.aborted) {
@@ -383,7 +390,8 @@ export default function mountPage() {
         $("pre").hidden = false;
       }
     } finally {
-      loader.stop();
+      const took = loader.stop();
+      if (succeeded) try { localStorage.setItem("rasta-analyze-ms", String(Math.round((expected + took) / 2))); } catch (e) {}
       if (analysis === request) analysis = null;
       btn.disabled = false;
       btn.innerHTML = old;
@@ -416,9 +424,33 @@ export default function mountPage() {
     });
   };
 
-  function kpi(ic, label, value, extra = "", cls = "") {
-    return `<div class="kpi ${cls}"><div class="t">${icon(ic)}${label}</div><div class="v">${value}</div>${extra}</div>`;
+  // Natija ko'rsatkichi plitkasi. meter — 0..100 chiziq; tab — bosilganda ochiladigan bo'lim.
+  function kpi(ic, label, value, { sub = "", tone = "", meter = null, tab = "" } = {}) {
+    const element = tab ? `button type="button" data-kpi-tab="${tab}"` : "div";
+    return `<${element} class="kpi ${tone}"><span class="kpi-icon">${icon(ic)}</span><span class="t">${label}</span>
+      <strong class="v">${value}</strong>${meter == null ? "" : `<span class="meter"><i style="width:${Math.max(0, Math.min(100, meter))}%"></i></span>`}
+      <small>${sub}</small></${tab ? "button" : "div"}>`;
   }
+  // Element ekranda to'liq ko'rinmasa, unga suriladi
+  function reveal(element, block = "start") {
+    const box = element.getBoundingClientRect();
+    if (box.top < 70 || box.bottom > innerHeight - 70) element.scrollIntoView({ block, behavior: "smooth" });
+  }
+  // Natija bo'limlari: Umumiy / Katalogda yo'q / Yuborish
+  function tab(name) {
+    document.querySelectorAll("#res [data-tab]").forEach(item => item.setAttribute("aria-selected", String(item.dataset.tab === name)));
+    document.querySelectorAll("#res [data-panel]").forEach(panel => { panel.hidden = panel.dataset.panel !== name; });
+  }
+  function openTab(name) {
+    tab(name);
+    reveal($("res").querySelector(".result-tabs"));
+  }
+  document.querySelectorAll("#res [data-tab]").forEach(item => { item.onclick = () => tab(item.dataset.tab); });
+  $("kpis").addEventListener("click", event => {
+    const tile = event.target.closest("[data-kpi-tab]");
+    if (tile) openTab(tile.dataset.kpiTab);
+  });
+  $("sendJump").onclick = () => openTab("send");
   function donut(items, rest) {
     const C = 2 * Math.PI * 46; let off = 0, out = "";
     const segs = items.map(p => ({ v: p.share_pct, c: p.color, id: p.sku_id }));
@@ -443,6 +475,10 @@ export default function mountPage() {
     $("scopeBody").hidden = true; $("scopeToggle").textContent = "Tanlash"; $("scopeToggle").setAttribute("aria-expanded", "false");
     groupsUi();
     flavourUi();
+    const unknownGroups = R.groups.length + (R.data.flavours || []).length;
+    $("unknownBadge").textContent = unknownGroups; $("unknownBadge").hidden = !unknownGroups;
+    $("unknownEmpty").hidden = unknownGroups > 0;
+    tab("overview");
     $("gapLegend").innerHTML = gapLayers
       .filter(({ key }) => d[key]?.length)
       .map(({ key, color, label }) => `<li><span style="--gap-color:${color}"></span>${label} · ${d[key].length}</li>`)
@@ -453,17 +489,25 @@ export default function mountPage() {
 
     const exactCount = s.products.reduce((count, product) => count + (product.family ? 0 : product.facings), 0);
     const exactRate = s.num_products ? Math.round(100 * exactCount / s.num_products) : 0;
+    const shelfBrands = (s.brands || []).filter(brand => brand.brand !== "?").sort((a, b) => b.share_pct - a.share_pct);
+    const rowCount = Array.isArray(s.rows) ? s.rows.length : Number(s.rows) || 0;
     const tiles = [
-      kpi("box", "Mahsulotlar", s.num_products, `<div class="meter"><i style="width:100%"></i></div>`),
-      kpi("check", "SKU tanildi", `${exactRate}<small>%</small>`,
-          `<div class="meter"><i style="width:${exactRate}%"></i></div>`, exactRate >= 80 ? "good" : ""),
+      kpi("box", "Mahsulotlar", s.num_products, { sub: rowCount ? `${rowCount} ta qatorda` : "rasmda topildi" }),
+      kpi("check", "SKU tanildi", `${exactRate}<small>%</small>`, { meter: exactRate, sub: `${exactCount} ta mahsulot aniq tanildi`,
+        tone: exactRate >= 80 ? "good" : exactRate < 40 ? "warn" : "" }),
+      kpi("layers", "Brendlar", shelfBrands.length, { sub: shelfBrands.length
+        ? `${esc(shelfBrands[0].brand)} · ${Math.round(shelfBrands[0].share_pct)}% ulush` : "brend tanilmadi" }),
+      kpi("search", "Katalogda yo‘q", s.num_unknown, { tab: "unknown", tone: s.num_unknown ? "warn" : "",
+        sub: unknownGroups ? `${unknownGroups} ta guruh — nom berish` : s.num_unknown ? "yakka mahsulotlar" : "hammasi katalogda" }),
     ];
     if (s.fill_pct !== null && s.fill_pct !== undefined)
       tiles.push(kpi("layers", "Qatorlar bandligi", `${Math.round(s.fill_pct)}<small>%</small>`,
-        `<div class="meter"><i style="width:${s.fill_pct}%;${s.fill_pct < 50 ? "background:var(--danger)" : ""}"></i></div>`, s.fill_pct < 50 ? "bad" : ""));
+        { meter: s.fill_pct, tone: s.fill_pct < 50 ? "bad" : "", sub: "belgilangan zona bo‘yicha" }));
     const oosAvailable = s.oos_status === "estimated" || s.oos_gaps > 0;
-    tiles.push(kpi("empty", "Taxminiy bo‘sh o‘rin", oosAvailable ? s.oos_facings : "—", "", s.oos_facings ? "bad" : ""));
+    tiles.push(kpi("empty", "Bo‘sh o‘rin", oosAvailable ? s.oos_facings : "—", { tone: s.oos_facings ? "bad" : "",
+      sub: oosAvailable ? (s.oos_gaps ? `${s.oos_gaps} ta joyda, taxminiy` : "bo‘sh joy topilmadi") : "baholab bo‘lmadi" }));
     $("kpis").innerHTML = tiles.join("");
+    $("resultMeta").textContent = `${file?.name || "Rasm"}${s.time_ms ? ` · ${(s.time_ms / 1000).toFixed(1)} s da tahlil qilindi` : ""}`;
 
     const ps = s.products;
     $("shareCard").hidden = !ps.length;
@@ -530,12 +574,13 @@ export default function mountPage() {
     if (s.row_fill && s.row_fill.length) notes.push(["layers", "Qatorlar bo'yicha to'ldirilganlik (yuqoridan): " + s.row_fill.map(v => Math.round(v) + "%").join(" · ")]);
     $("notes").innerHTML = notes.map(([ic, t, c]) => `<div class="note ${c || ""}">${icon(ic)}<div>${t}</div></div>`).join("");
 
-    $("pre").hidden = true; $("res").hidden = false; $("boxesBtn").hidden = false;
+    $("pre").hidden = true; $("res").hidden = false; $("resultBar").hidden = false; $("boxesBtn").hidden = false;
     draw();
+    reveal($("resultBar"));
   }
 
   async function setupSubmission(reportId, visitStoreId) {
-    $("sendPanel").hidden = !reportId;
+    $("sendPanel").hidden = $("sendTab").hidden = $("sendJump").hidden = !reportId;
     if (!reportId) return;
     sendForm.reset();
     sendForm.hidden = false;
@@ -566,7 +611,7 @@ export default function mountPage() {
       });
       if (R?.report_id !== reportId) return;
       sendForm.hidden = true;
-      $("sentMessage").hidden = false;
+      $("sentMessage").hidden = false; $("sendJump").hidden = true;
       phase("submit");
       $("sentMessage").querySelector("a").href = `/reports?id=${encodeURIComponent(reportId)}`;
     } catch (error) {
